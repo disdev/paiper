@@ -375,6 +375,173 @@ def responses(url):
     return b"<rss><channel><title>Publisher</title></channel></rss>"
 
 
+def observation_response(key, at):
+    if key in ("blkb", "vti", "voo"):
+        data = quote(key.upper())
+        data["chart"]["result"][0]["meta"]["regularMarketTime"] = at.timestamp()
+    elif key == "usd_pen":
+        data = {
+            "date": at.date().isoformat(),
+            "base": "USD",
+            "quote": "PEN",
+            "rate": 3.5,
+        }
+    elif key == "weather":
+        data = weather()
+        data["current"]["time"] = at.timestamp()
+    elif key == "flights":
+        data = {
+            "now": at.timestamp() * 1000,
+            "ac": [{"hex": "abc", "seen_pos": 10, "lat": 35.1, "lon": -92.4}],
+        }
+    elif key == "alerts_updated":
+        data = {"updated": at.isoformat(), "features": []}
+    elif key == "alerts":
+        data = {
+            "features": [
+                {
+                    "id": "nws:1",
+                    "properties": {
+                        "sent": at.isoformat(),
+                        "effective": (at + timedelta(hours=1)).isoformat(),
+                        "expires": (at + timedelta(hours=2)).isoformat(),
+                        "severity": "Severe",
+                        "event": "Wind Advisory",
+                        "headline": "Wind advisory",
+                    },
+                }
+            ]
+        }
+    else:
+        return (
+            "<rss><channel><item><title>Headline</title>"
+            "<link>https://example.com/article</link>"
+            f"<pubDate>{at.strftime('%a, %d %b %Y %H:%M:%S %z')}</pubDate>"
+            "</item></channel></rss>"
+        ).encode()
+    return json.dumps(data).encode()
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "blkb",
+        "vti",
+        "voo",
+        "usd_pen",
+        "weather",
+        "flights",
+        "alerts",
+        "alerts_updated",
+        "world_news",
+    ],
+)
+def test_future_observations_preserve_last_good_and_backoff(
+    tmp_path, monkeypatch, kind
+):
+    from paiper.sources import _requests
+
+    key = "alerts" if kind == "alerts_updated" else kind
+    specs = _requests(NOW, 35.0887, -92.4421, "America/Chicago")
+    url = next(url for name, url, *_ in specs if name == key)
+    monkeypatch.setattr(http, "fetch", responses)
+    path = tmp_path / "cache.sqlite3"
+    with ContentCache(path) as cache:
+        good = collect(cache, NOW)[key]
+        history = cache.history(key)
+        attempted_at = NOW + timedelta(days=1)
+        bad_body = observation_response(kind, NOW.replace(year=2027))
+        monkeypatch.setattr(
+            http,
+            "fetch",
+            lambda target: bad_body if target == url else responses(target),
+        )
+        failed = collect(cache, attempted_at)[key]
+        assert failed.status(attempted_at) == "degraded"
+        assert "future" in failed.error.lower()
+        assert failed.payload == good.payload
+        assert failed.observed_at == good.observed_at
+        assert failed.fetched_at == good.fetched_at
+        assert failed.valid_until == good.valid_until
+        assert failed.failures == 1
+        assert failed.last_attempt_at == attempted_at
+        assert failed.next_fetch_at > attempted_at
+        assert cache.history(key) == history
+        monkeypatch.setattr(http, "fetch", lambda url: pytest.fail("backoff"))
+        assert collect(cache, attempted_at + timedelta(seconds=1))[key] == failed
+    with ContentCache(path) as cache:
+        assert collect(cache, attempted_at, offline=True)[key] == failed
+
+
+@pytest.mark.parametrize(
+    ("key", "seconds"),
+    [
+        ("blkb", 300),
+        ("usd_pen", 86400),
+        ("weather", 900),
+        ("flights", 30),
+        ("alerts", 300),
+        ("alerts_updated", 300),
+        ("world_news", 300),
+    ],
+)
+def test_observation_clock_skew_is_bounded(key, seconds):
+    from paiper.sources import _requests, _times
+
+    source_key = "alerts" if key == "alerts_updated" else key
+    spec = next(
+        spec
+        for spec in _requests(NOW, 35.0887, -92.4421, "America/Chicago")
+        if spec[0] == source_key
+    )
+    _, _, cadence, parser = spec
+    for offset in (0, seconds):
+        payload = parser(observation_response(key, NOW + timedelta(seconds=offset)))
+        _times(payload, NOW, cadence)
+    beyond = seconds + (86400 if key == "usd_pen" else 1)
+    payload = parser(observation_response(key, NOW + timedelta(seconds=beyond)))
+    with pytest.raises(ValueError, match="future"):
+        _times(payload, NOW, cadence)
+
+
+def test_current_observations_and_future_forecasts_schedules_remain_cacheable(
+    tmp_path, monkeypatch
+):
+    forecast = weather()
+    forecast["daily"]["time"] = ["2026-10-28"]
+    forecast["daily"]["sunrise"] = ["2026-10-28T07:27"]
+    forecast["daily"]["sunset"] = ["2026-10-28T18:19"]
+    forecast["hourly"]["time"] = ["2026-10-28T10:00", "2026-10-28T11:00"]
+    scheduled = game()
+    scheduled["status"]["startTimeTBD"] = False
+
+    def fetch(url):
+        if "open-meteo" in url:
+            return json.dumps(forecast).encode()
+        if "statsapi" in url:
+            return json.dumps({"dates": [{"games": [scheduled, game(2)]}]}).encode()
+        if "frankfurter" in url:
+            return observation_response("usd_pen", NOW)
+        if "weather.gov" in url:
+            return observation_response("alerts", NOW)
+        return responses(url)
+
+    monkeypatch.setattr(http, "fetch", fetch)
+    with ContentCache(tmp_path / "cache.sqlite3") as cache:
+        records = collect(cache, NOW)
+        assert all(record.status(NOW) == "ok" for record in records.values())
+        assert all(not record.is_stale(NOW) for record in records.values())
+        assert records["usd_pen"].observed_at == NOW.date()
+        assert records["blkb"].observed_at == NOW
+        assert records["weather"].payload.hourly[0].at > NOW
+        assert records["weather"].payload.daily[0].date > NOW.date()
+        assert records["cardinals"].payload.games[0].start_at > NOW
+        assert records["cardinals"].payload.games[1].start_time_tbd
+        alert = records["alerts"].payload.items[0]
+        assert alert.effective_at > NOW
+        assert alert.expires_at > NOW
+
+
 def test_collect_independent_failures_cadence_offline_and_reopen(tmp_path, monkeypatch):
     def fetch(url):
         if "/BLKB?" in url:

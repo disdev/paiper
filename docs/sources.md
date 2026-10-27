@@ -77,6 +77,21 @@ failure, data and its original timestamps are retained; the error is visible
 and limited to 300 characters. Missing or malformed data is never replaced with
 sample data, zeros, inferred routes or invented market sessions.
 
+Before replacing last-good data, collection rejects actual observation times
+materially ahead of the supplied UTC `now`. Allowed positive skew is at most
+**5 minutes** for quotes, RSS publication times, and NWS update/issue times;
+**15 minutes** for Open-Meteo current modeled conditions (quarter-hour interval
+alignment); and **30 seconds** for the ADS-B response clock (short position
+lifetime). FX's date-only reference may be at most **one calendar day** ahead of
+the UTC collection date, allowing provider date/time-zone boundaries without
+inventing an observation time. These are validation tolerances, not freshness
+extensions: original provider times and existing expiry rules remain unchanged.
+Rejected responses use the normal error/backoff path, retaining prior good
+payloads and timestamps. Future hourly/daily forecasts, sunrise/sunset, game
+schedules, and alert effective/expiry times are not observations and are not
+subject to this check. Aircraft eligibility still uses `Flights.current_at`;
+even tolerated future positions are not displayed before their observation time.
+
 ## Providers, cadence and presentation rules
 
 | Key | Provider / endpoint | Payload | Normal fetch interval |

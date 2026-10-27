@@ -131,23 +131,40 @@ def _requests(now, latitude, longitude, timezone):
     return requests
 
 
+def _check_observation(observed, now, skew=timedelta(minutes=5)):
+    if observed is not None and observed > now + skew:
+        raise ValueError("Provider observation is materially in the future")
+
+
 def _times(payload, now, cadence):
     if isinstance(payload, Weather):
+        # Current modeled conditions can be aligned to a 15-minute interval.
+        _check_observation(payload.current.observed_at, now, timedelta(minutes=15))
         return payload.current.observed_at, payload.current.valid_until
     if isinstance(payload, Flights):
+        _check_observation(payload.observed_at, now, timedelta(seconds=30))
         return payload.observed_at, payload.observed_at + timedelta(seconds=120)
     if isinstance(payload, Quote):
+        _check_observation(payload.observed_at, now)
         return payload.observed_at, payload.observed_at + timedelta(days=1)
     if isinstance(payload, ExchangeRate):
+        # A date-only reference can differ by one day across provider time zones.
+        if payload.date > now.date() + timedelta(days=1):
+            raise ValueError("Provider reference date is materially in the future")
         boundary = datetime.combine(payload.date, datetime.min.time(), UTC)
         return payload.date, boundary + timedelta(days=1)
     if isinstance(payload, Alerts):
+        _check_observation(payload.updated_at, now)
+        for alert in payload.items:
+            _check_observation(alert.issued_at, now)
         return payload.updated_at, now + timedelta(seconds=cadence)
     if isinstance(payload, Feed):
-        return max(
+        published = max(
             (item.published_at for item in payload.items if item.published_at),
             default=None,
-        ), now + timedelta(seconds=cadence)
+        )
+        _check_observation(published, now)
+        return published, now + timedelta(seconds=cadence)
     return None, now + timedelta(seconds=cadence)
 
 
