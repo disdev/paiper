@@ -841,7 +841,7 @@ def run_setup(args, *, runner, prompt):
                     capture=False,
                 )
             print(
-                "Setup installed the offline app. Review timer states above; physical verification is operator-only."
+                "Setup prepared the app. Review timer states above; physical verification is operator-only."
             )
     return 0
 

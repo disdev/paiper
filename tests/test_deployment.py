@@ -189,6 +189,105 @@ def advance(runner):
     return git(runner.repo, "rev-parse", "HEAD")
 
 
+def capable_commit(runner, manifest=None):
+    path = runner.repo / "deploy/app-capabilities.json"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        json.dumps(
+            manifest
+            if manifest is not None
+            else {
+                "version": 1,
+                "scenes": ["stillness", "calibration", "dashboard"],
+            }
+        )
+    )
+    return advance(runner)
+
+
+def test_dashboard_supported_and_legacy_rollback_is_explicit(prepared, module, caplog):
+    manager, runner, first, _ = prepared
+    assert {"dashboard", "stillness", "calibration"} <= set(module.SCENES)
+    manager.update()
+    capable = capable_commit(runner)
+    (manager.root / "manager.py").write_bytes(b"stable manager must not auto-update")
+    manager.update()
+    assert manager.settings["scene"] == "stillness"
+    assert (
+        manager.root / "manager.py"
+    ).read_bytes() == b"stable manager must not auto-update"
+    manager.settings["scene"] = "dashboard"
+    module.write_json(manager.root / "settings.json", manager.settings)
+    assert manager.status()["effective_scene"] == "dashboard"
+    assert manager.rollback() == "activated"
+    assert manager.status()["current"] == first
+    assert manager.status()["preferred_scene"] == "dashboard"
+    assert manager.status()["effective_scene"] == "stillness"
+    assert manager.status()["compatibility_warning"]
+    assert manager.run() == "completed"
+    display = next(argv for argv, _ in reversed(runner.calls) if "display" in argv)
+    assert display[display.index("--scene") + 1] == "stillness"
+    assert (
+        "WARNING" in caplog.text
+        and "dashboard" in caplog.text
+        and "stillness" in caplog.text
+    )
+    assert (
+        json.loads((manager.root / "settings.json").read_text())["scene"] == "dashboard"
+    )
+    assert manager.update(retry=True) == "activated"
+    assert manager.status()["current"] == capable
+    assert manager.status()["effective_scene"] == "dashboard"
+    assert manager.status()["compatibility_warning"] is None
+
+
+@pytest.mark.parametrize(
+    "manifest",
+    [
+        {},
+        {"version": True, "scenes": ["stillness", "calibration", "dashboard"]},
+        {"version": 2, "scenes": ["stillness", "calibration", "dashboard"]},
+        {"version": 1, "scenes": "dashboard"},
+        {"version": 1, "scenes": ["dashboard"]},
+        {
+            "version": 1,
+            "scenes": ["stillness", "calibration", "dashboard", "dashboard"],
+        },
+        {"version": 1, "scenes": ["stillness", "calibration", "unknown"]},
+        {"version": 1, "scenes": ["stillness", "calibration"], "extra": 1},
+    ],
+)
+def test_invalid_capabilities_reject_candidate(prepared, module, manifest):
+    manager, runner, first, _ = prepared
+    manager.update()
+    capable_commit(runner, manifest)
+    with pytest.raises(module.DeploymentError, match="capabilit"):
+        manager.update()
+    assert manager.status()["current"] == first
+
+
+def test_dashboard_smoke_uses_offline_isolated_content_and_config(prepared):
+    manager, runner, _, settings = prepared
+    capable_commit(runner)
+    before = Path(settings["state"]).read_bytes()
+    manager.update()
+    calls = [
+        (argv, kwargs)
+        for argv, kwargs in runner.calls
+        if "preview" in argv and "dashboard" in argv
+    ]
+    assert calls, "Capable releases need an actual dashboard smoke"
+    for argv, kwargs in calls:
+        assert "--offline" in argv
+        cache = Path(argv[argv.index("--cache") + 1])
+        assert cache.is_relative_to(manager.work)
+        assert Path(kwargs["env"]["XDG_STATE_HOME"]).is_relative_to(manager.work)
+        preferences = Path(argv[argv.index("--dashboard-config") + 1])
+        assert preferences.is_relative_to(manager.work)
+        assert not cache.exists() and not preferences.exists()
+    assert Path(settings["state"]).read_bytes() == before
+
+
 def test_successful_activation_preserves_cooldown_database(prepared):
     manager, runner, first, settings = prepared
     original = Path(settings["state"]).read_bytes()

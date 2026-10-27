@@ -1,6 +1,6 @@
-# Paiper display foundation
+# Paiper daily paper
 
-Offline, one-shot rendering for the **Waveshare 4-inch six-color E6 panel only**:
+One-shot rendering for the **Waveshare 4-inch six-color E6 panel only**:
 600×400 logical landscape, rotated once into the driver's 400×600 native buffer.
 Black, white, yellow, red, blue, and green are the only output colors.
 This is not compatible with similarly named monochrome, four-color, or
@@ -8,9 +8,16 @@ seven-color panels.
 
 The `stillness` and `calibration` scenes explicitly say **OFFLINE**. Their
 America/Chicago timestamp is the image-generation time, not a live clock.
-There are **no live feeds, news, games, or control UI** in this foundation.
+The new `dashboard` scene adds live, independently cached sources and rotating
+weather, Cardinals scores/headlines, BLKB/VTI/VOO quotes, BBC World and OpenAI
+headlines, USD/PEN, verified WEB verses, photographs and a bounded nearby-flight
+digest. Effective Severe/Extreme NWS alerts take priority.
+See [dashboard preferences and page behavior](docs/dashboard.md).
+There is no local control UI or orbital-pass prediction.
 Optional user timers provide CI-approved pull updates and explicitly opted-in
-offline display attempts; the application itself remains one-shot.
+display attempts; the application itself remains one-shot. Capable first
+installs default to dashboard, but physical display remains explicitly opt-in.
+Existing installations keep their chosen scene until the one-time activation below.
 The physical Raspberry Pi, panel orientation, and
 multi-hour operation are **unverified**; local preview success is not deployment.
 
@@ -47,6 +54,66 @@ before a successful main push can fast-forward `deploy`; the Pi polls only that
 branch. Publishing the repository does **not** install software on your device.
 The updater supports public HTTPS GitHub repositories, not private authentication.
 
+### Already installed and calibrated? Enable the daily paper once
+
+After this change is CI-approved and promoted to protected `deploy`, run as the
+**same non-root display user** (not the full setup/bootstrap again):
+
+```sh
+(p="$HOME/.local/share/paiper"; /usr/bin/python3 "$p/manager.py" update &&
+ if [ -f "$p/current/app/deploy/enable-dashboard.py" ]; then
+   /usr/bin/python3 "$p/current/app/deploy/enable-dashboard.py"
+ else
+   echo "Dashboard activation unavailable: check manager status/update logs and retry after deploy promotion." >&2; exit 1
+ fi)
+```
+
+The first step downloads/prepares the latest app through the **existing** stable
+manager; a normal new app release may need its usual per-release dependencies
+and browser. The activation step itself only validates and atomically upgrades
+the stable controller, then sets `scene=dashboard`. It does not rerun apt,
+browser installation, calibration, hardware transfers, service starts or timer
+setup. Your original paths, calibrated panel YAML, safety history/provenance,
+vendor and cadence remain unchanged. An already-enabled display timer picks up
+the next safe slot; an off timer stays off. Failures are nonzero with diagnostics.
+
+**Why explicit?** Ordinary automatic app updates deliberately do not replace the
+stable manager or reinterpret `stillness`. Once enabled, normal future app
+updates remain automatic. Older-app rollback keeps the dashboard preference but
+uses `stillness` with a conspicuous compatibility warning and effective-scene
+status. See [activation, recovery and rollback](docs/deployment.md#existing-device-dashboard-activation).
+
+### Daily content, freshness and preferences
+
+Defaults are **Conway, Arkansas (35.0887, -92.4421), America/Chicago**.
+Daypart playlists rotate eligible pages; recent live Cardinals games get
+alternating priority, recent finals one extra slot, and flights at most one slot
+per 30 minutes. Successful physical displays advance rotation; previews and
+cooldown skips do not. There is no faster hardware cadence.
+
+Weather uses Open-Meteo modeled conditions/forecasts; NWS supplies supplementary
+alerts. MLB supplies scores and club news; Yahoo supplies dated daily quotes;
+Frankfurter supplies a daily USD/PEN reference, not a bank/cash rate.
+BBC World/OpenAI are attributed feeds, not comprehensive coverage. adsb.lol
+provides nearby observations, not radar, routes or destination predictions.
+Each page retains source dates/as-of times: “Updated” is render time, not a live
+clock. Sources refresh independently with backoff; outages retain dated
+last-good data with degraded/stale labels. Missing live data falls back honestly
+to bundled verse/art, not invented facts. See [provider intervals and limitations](docs/sources.md).
+
+Optional `dashboard.yaml` goes **beside the existing panel YAML**; do not add
+dashboard keys to or replace the calibrated panel file. Configure location,
+time zone, daypart playlists and a `photo_directory` (relative to dashboard
+YAML). Small curated PNG/JPEG/WebP photo collections supplement bundled
+Earthrise. [Full preferences and pages](docs/dashboard.md) include selection,
+image bounds and provenance.
+
+Content is cached separately at `$XDG_STATE_HOME/paiper/content.sqlite3`, or
+`~/.local/state/paiper/content.sqlite3` when XDG is unset/relative. **Never use the
+display safety database as the content cache.** Dashboard source warnings appear
+in the display journal; [source-health troubleshooting](docs/deployment.md#source-health-troubleshooting)
+shows an offline inspection without polling providers.
+
 ## Local installation (Python 3.11)
 
 From this directory, with Python 3.11 available:
@@ -67,6 +134,9 @@ below is needed when using OS-provided GPIO packages.
 
 ```sh
 paiper preview --scene stillness --output .artifacts/stillness.png
+paiper preview --scene dashboard --output .artifacts/dashboard-live.png
+paiper preview --scene dashboard --offline --cache .artifacts/content.sqlite3 \
+  --output .artifacts/dashboard.png
 paiper preview --scene calibration --output .artifacts/calibration.png
 paiper preview --scene calibration --config config.yaml --native \
   --output .artifacts/calibration-native.png
@@ -82,6 +152,8 @@ rotation. PNG saves are atomic and validate dimensions, RGB mode, and every
 pixel against the six-color palette. Fonts, CSS, and templates are packaged;
 scene rendering blocks external network requests. Local font attribution and
 licenses are in `src/paiper/assets/`.
+Dashboard collection happens before rendering; omit `--offline` to fetch live
+sources. Offline mode permits cached and packaged content, never providers.
 
 ## Raspberry Pi installation — physical verification still required
 

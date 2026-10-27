@@ -47,6 +47,11 @@ def _copy_atomic(source, destination):
             os.fsync(outgoing.fileno())
         staging.chmod(0o600)
         os.replace(staging, destination)
+        fd = os.open(destination.parent, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
     finally:
         staging.unlink(missing_ok=True)
 
@@ -79,7 +84,8 @@ def _install(args, runner, manager_module):
         if args.state:
             state = args.state.expanduser().resolve()
         settings_path = root / "settings.json"
-        if settings_path.exists() or settings_path.is_symlink():
+        first_install = not os.path.lexists(settings_path)
+        if not first_install:
             settings = manager_module.read_json(settings_path)
             # Manager validates the full stored contract before we use its paths.
             manager = manager_module.Manager(root, runner=runner)
@@ -152,6 +158,17 @@ def _install(args, runner, manager_module):
             raise ValueError(
                 "No available healthy active release; timers were not enabled"
             )
+
+        if first_install:
+            with manager_module.lock(root / "update.lock"), manager._activation_locks():
+                if manager._journal_pending():
+                    raise ValueError(
+                        "Pending activation; first-install scene was not changed"
+                    )
+                release = manager._release(manager._pointer("current"))
+                if "dashboard" in manager_module.app_scenes(release):
+                    settings["scene"] = "dashboard"
+                    manager_module.write_json(settings_path, settings)
 
         if args.enable_display:
             release = root / "releases" / status["current"]
