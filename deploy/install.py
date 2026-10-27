@@ -72,12 +72,23 @@ def _install(args, runner, manager_module):
             _xdg_path("XDG_STATE_HOME", home / ".local/state")
             / "paiper/display.sqlite3"
         )
+        if args.config_path:
+            config = args.config_path.expanduser().resolve()
+            if not config.is_file():
+                raise ValueError("--config-path must name an existing configuration")
+        if args.state:
+            state = args.state.expanduser().resolve()
         settings_path = root / "settings.json"
         if settings_path.exists() or settings_path.is_symlink():
             settings = manager_module.read_json(settings_path)
             # Manager validates the full stored contract before we use its paths.
             manager = manager_module.Manager(root, runner=runner)
             config = Path(settings["config"])
+            for value, key in ((args.config_path, "config"), (args.state, "state")):
+                if value and str(value.expanduser().resolve()) != settings[key]:
+                    raise ValueError(
+                        f"Existing {key} differs; settings were not changed"
+                    )
             if (
                 args.vendor_lib is not None
                 and str(args.vendor_lib.resolve()) != settings["vendor_lib"]
@@ -175,15 +186,22 @@ def _install(args, runner, manager_module):
                 name = f"paiper-{purpose}.{kind}"
                 _copy_atomic(SOURCE / "systemd" / name, units / name)
         _check(runner, ["systemctl", "--user", "daemon-reload"])
-        _check(
-            runner, ["systemctl", "--user", "enable", "--now", "paiper-update.timer"]
-        )
+        if not args.no_update_timer:
+            _check(
+                runner,
+                ["systemctl", "--user", "enable", "--now", "paiper-update.timer"],
+            )
         if args.enable_display:
             _check(
                 runner,
                 ["systemctl", "--user", "enable", "--now", "paiper-display.timer"],
             )
-        print(f"Paiper installed at {root}; update timer enabled.")
+        print(f"Paiper installed at {root}.")
+        print(
+            "Update timer was not changed."
+            if args.no_update_timer
+            else "Update timer enabled."
+        )
         if not args.enable_display:
             print("Display timer was not changed; first installs leave it disabled.")
         return 0
@@ -202,6 +220,21 @@ def main(argv=None, *, runner=subprocess.run):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--config", type=Path, help="Copy a calibrated config only if absent"
+    )
+    parser.add_argument(
+        "--config-path",
+        type=Path,
+        help="Use an existing config in place on first install",
+    )
+    parser.add_argument(
+        "--state",
+        type=Path,
+        help="Original manual display state path, first install only",
+    )
+    parser.add_argument(
+        "--no-update-timer",
+        action="store_true",
+        help="Prepare release and units without changing update timer scheduling",
     )
     parser.add_argument(
         "--vendor-lib", type=Path, help="Persistent Waveshare python/lib directory"

@@ -152,7 +152,11 @@ def display_frame(image: Image.Image, profile: PanelProfile, state_path: Path) -
 
 
 def render_and_display(
-    image_factory: Callable[[], Image.Image], profile: PanelProfile, state_path: Path
+    image_factory: Callable[[], Image.Image],
+    profile: PanelProfile,
+    state_path: Path,
+    *,
+    require_existing_state: bool = False,
 ) -> bool:
     """Render and display one frame, or return False for a logged safe skip.
 
@@ -160,10 +164,11 @@ def render_and_display(
     rendering, encoding, reservation, lazy vendor import, init, refresh, sleep,
     close, and completion. Rendering/encoding failures do not reserve an attempt.
     Failure to persist completion leaves the interrupted-attempt guard in place.
+    Guided setup uses ``require_existing_state`` after its one-shot initialization.
     """
     if not profile.confirmed:
         raise ValueError("Panel profile must be confirmed before hardware access")
-    with DisplayState(state_path) as state:
+    with DisplayState(state_path, require_existing=require_existing_state) as state:
         image = image_factory()
         payload = encode_native(prepare_native(quantize_ui(image), profile))
         digest = hashlib.sha256(payload).hexdigest()

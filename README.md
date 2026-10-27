@@ -17,9 +17,32 @@ multi-hour operation are **unverified**; local preview success is not deployment
 ## GitHub-managed Raspberry Pi deployment
 
 Source: [disdev/paiper](https://github.com/disdev/paiper).
-Follow the [deployment guide](docs/deployment.md) for fresh Pi bootstrap,
-physical calibration, persistent vendor/config/state paths, the non-root
-installer, optional display timer, and rollback. GitHub's `ci` job tests changes
+On a **Raspberry Pi 5 running 64-bit Raspberry Pi OS Bookworm or Trixie
+(Debian 12/13)**, run this one command as your ordinary display user:
+
+```sh
+(umask 077; setup_dir="$HOME/.paiper-setup-$(/usr/bin/python3 -c 'import uuid; print(uuid.uuid4().hex)')" &&
+ mkdir -- "$setup_dir" &&
+ curl --fail --location --proto '=https' --tlsv1.2 \
+   https://raw.githubusercontent.com/disdev/paiper/deploy/deploy/bootstrap.sh \
+   --output "$setup_dir/bootstrap.sh" &&
+ sh "$setup_dir/bootstrap.sh")
+```
+
+The command becomes available once this guided-setup change is promoted to
+`deploy`; it does not publish itself. Download failures never execute a partial
+script. No git clone, venv activation, YAML editing, or `sudo pip` is needed.
+The guided installer asks before OS/SPI/group changes, pinned vendor
+installation, physical calibration, timer scheduling, and boot-without-login.
+It may ask you to reconnect after a reboot/new login and rerun; it never reboots
+or resets display history. Existing manual users must identify their **original
+state database**, not create a replacement. Pressing Enter never approves GPIO.
+Missing saved history stops setup rather than creating a new database. Explicit
+first-use approval allows one initialization only; an interrupted initialization
+requires operator review, not deleting state or setup records to retry.
+
+Follow the [deployment guide](docs/deployment.md) for the prompts, advanced
+manual setup, stable paths, and rollback. GitHub's `ci` job tests changes
 before a successful main push can fast-forward `deploy`; the Pi polls only that
 branch. Publishing the repository does **not** install software on your device.
 The updater supports public HTTPS GitHub repositories, not private authentication.
