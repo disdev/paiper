@@ -166,6 +166,11 @@ Packaged exact verse text and NASA media provenance/permission links are in
 Local image rights remain the owner's responsibility. There is no NASA
 endorsement. Physical photo appearance still needs inspection on the real panel.
 
-`deploy/app-capabilities.json` declares dashboard support for the next deployment
-task. No manager/timer migration, local web controls, orbital prediction,
-hardware access, or deployment is performed by this implementation.
+`deploy/app-capabilities.json` declares actual dashboard CLI support.
+Capable first installs default to dashboard with display still opt-in. Existing
+devices use the [explicit one-time activation](deployment.md#existing-device-dashboard-activation),
+which upgrades the stable controller without provisioning or hardware operations.
+Ordinary app updates retain explicit scene choices and never replace that
+controller. See [source-health troubleshooting](deployment.md#source-health-troubleshooting)
+for offline cached diagnostics. No local web controls or orbital prediction are
+implemented; physical output remains operator-verified only.

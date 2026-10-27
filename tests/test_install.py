@@ -11,6 +11,7 @@ import pytest
 from test_deployment import (
     FAILURE_CASES,
     LocalRunner,
+    capable_commit,
     diagnostic_failure,
     git,
     sensitive_diagnostics,
@@ -101,6 +102,22 @@ def test_initial_install_prepares_before_enabling_updater_only(installation):
         assert (home / ".config/systemd/user" / unit).read_bytes() == (
             ROOT / "deploy/systemd" / unit
         ).read_bytes()
+
+
+def test_first_capable_install_defaults_dashboard_but_existing_choice_is_retained(
+    installation,
+):
+    installer, _, root, runner, _, builds = installation
+    capable_commit(builds)
+    assert installer.main([], runner=runner) == 0
+    settings_path = root / "settings.json"
+    settings = json.loads(settings_path.read_text())
+    assert settings["scene"] == "dashboard"
+    settings["scene"] = "stillness"
+    settings_path.write_text(json.dumps(settings))
+    before = settings_path.read_bytes()
+    assert installer.main([], runner=runner) == 0
+    assert settings_path.read_bytes() == before
 
 
 def test_preparation_only_retains_explicit_manual_paths(installation):

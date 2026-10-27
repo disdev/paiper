@@ -24,7 +24,8 @@ from pathlib import Path, PurePosixPath
 from uuid import uuid4
 
 LOG = logging.getLogger("paiper.deploy")
-SCENES = ("stillness", "calibration")
+STATIC_SCENES = ("stillness", "calibration")
+SCENES = (*STATIC_SCENES, "dashboard")
 SHA = re.compile(r"[0-9a-f]{40}")
 SETTINGS_KEYS = {
     "version",
@@ -144,6 +145,29 @@ def read_json(path):
         return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique)
     except (OSError, ValueError) as error:
         raise DeploymentError(f"Invalid {path.name}") from error
+
+
+def app_scenes(release):
+    """Absent declarations are legacy, never infer CLI support from app files."""
+    path = release / "app/deploy/app-capabilities.json"
+    if not os.path.lexists(path):
+        return STATIC_SCENES
+    data = read_json(path)
+    if (
+        not isinstance(data, dict)
+        or set(data) != {"version", "scenes"}
+        or type(data["version"]) is not int
+        or data["version"] != 1
+        or not isinstance(data["scenes"], list)
+        or any(
+            not isinstance(scene, str) or scene not in SCENES
+            for scene in data["scenes"]
+        )
+        or len(set(data["scenes"])) != len(data["scenes"])
+        or not set(STATIC_SCENES) <= set(data["scenes"])
+    ):
+        raise DeploymentError("Invalid app capabilities (expected version 1 scenes)")
+    return tuple(data["scenes"])
 
 
 def sync_directory(path):
@@ -328,7 +352,7 @@ class Manager:
         ):
             raise DeploymentError("Invalid deploy branch ref")
         if not isinstance(s["scene"], str) or s["scene"] not in SCENES:
-            raise DeploymentError("Unknown offline scene")
+            raise DeploymentError("Unknown scene")
         for key in ("python", "config", "state", "vendor_lib"):
             value = s[key]
             if key == "vendor_lib" and value is None:
@@ -380,7 +404,9 @@ class Manager:
             env["PYTHONPATH"] = self.settings["vendor_lib"]
         return env
 
-    def _execute(self, argv, *, timeout, release=None, display=False, label):
+    def _execute(
+        self, argv, *, timeout, release=None, display=False, label, environment=None
+    ):
         try:
             return self.runner(
                 [str(arg) for arg in argv],
@@ -388,7 +414,10 @@ class Manager:
                 capture_output=not display,
                 timeout=timeout,
                 cwd=str(release / "app" if release else self.root),
-                env=self._environment(release, display=display),
+                env={
+                    **self._environment(release, display=display),
+                    **(environment or {}),
+                },
             )
         except (
             subprocess.TimeoutExpired,
@@ -480,13 +509,30 @@ class Manager:
             write_json(self.root / "failed.json", records)
 
     def status(self):
+        current = self._pointer("current")
+        scene, warning = (
+            self._effective_scene(self._release(current)) if current else (None, None)
+        )
         return {
             "root": str(self.root),
-            "current": self._pointer("current"),
+            "current": current,
             "previous": self._pointer("previous"),
             "failed": self._failed(),
             "activation_pending": self._journal_pending(),
+            "preferred_scene": self.settings["scene"],
+            "effective_scene": scene,
+            "compatibility_warning": warning,
         }
+
+    def _effective_scene(self, release):
+        preferred = self.settings["scene"]
+        if preferred in app_scenes(release):
+            return preferred, None
+        return "stillness", (
+            "COMPATIBILITY FALLBACK: this release does not support dashboard; "
+            "displaying legacy stillness. Dashboard preference is retained for "
+            "a later capable app upgrade."
+        )
 
     def _journal_pending(self):
         return os.path.lexists(self.root / "activation.json")
@@ -605,6 +651,7 @@ class Manager:
 
     def _health(self, release, snapshot=None, *, previews=True):
         """Exercise candidate CLI against scratch data only, never live state."""
+        supported = app_scenes(release)
         python = release / ".venv/bin/python"
         with self._scratch() as scratch:
             state = scratch / "display.sqlite3"
@@ -623,7 +670,28 @@ class Manager:
                     "Candidate modified the state snapshot; migrations forbidden"
                 )
             if previews:
-                for scene in SCENES:
+                scenes = (
+                    *STATIC_SCENES,
+                    *(("dashboard",) if "dashboard" in supported else ()),
+                )
+                for scene in scenes:
+                    options = []
+                    environment = {}
+                    if scene == "dashboard":
+                        preferences = scratch / "dashboard.yaml"
+                        preferences.write_text("{}\n", encoding="utf-8")
+                        options = [
+                            "--offline",
+                            "--cache",
+                            scratch / "content.sqlite3",
+                            "--dashboard-config",
+                            preferences,
+                        ]
+                        # Cache's inode locks also belong to scratch, not the user.
+                        environment = {
+                            "XDG_STATE_HOME": str(scratch),
+                            "XDG_CONFIG_HOME": str(scratch),
+                        }
                     for native in (False, True):
                         output = scratch / f"{scene}-{native}.png"
                         self._execute(
@@ -638,11 +706,13 @@ class Manager:
                                 self.settings["config"],
                                 "--output",
                                 output,
+                                *options,
                                 *(["--native"] if native else []),
                             ],
                             timeout=120,
                             release=release,
                             label="Offline preview smoke",
+                            environment=environment,
                         )
                         size = (400, 600) if native else (600, 400)
                         self._execute(
@@ -716,6 +786,9 @@ class Manager:
         with self._activation_locks():
             self._recover()
             release = self._release(sha)
+            _, warning = self._effective_scene(release)
+            if warning:
+                LOG.warning("%s", warning)
             current, previous = self._pointer("current"), self._pointer("previous")
             with self._scratch() as scratch:
                 snapshot = self._snapshot(scratch / "state.sqlite3")
@@ -804,6 +877,9 @@ class Manager:
                 if sha is None:
                     raise DeploymentError("No current release")
                 release = self._release(sha)
+                scene, warning = self._effective_scene(release)
+                if warning:
+                    LOG.warning("%s", warning)
                 # The app acquires the inner state lock; holding it here deadlocks it.
                 self._execute(
                     [
@@ -812,7 +888,7 @@ class Manager:
                         "paiper",
                         "display",
                         "--scene",
-                        self.settings["scene"],
+                        scene,
                         "--config",
                         self.settings["config"],
                         "--state",

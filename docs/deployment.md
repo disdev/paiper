@@ -1,7 +1,9 @@
 # GitHub-managed Paiper deployment
 
-Paiper currently renders only the offline `stillness` and `calibration` scenes.
-There are no live sources. The example configuration deliberately retains
+Paiper renders the rotating, source-backed `dashboard` plus the original offline
+`stillness` and `calibration` scenes. See [pages/preferences](dashboard.md) and
+[source dates, defaults and outage behavior](sources.md).
+The example panel configuration deliberately retains
 `panel.confirmed: false`. Repository publication, previews and CI do not verify
 a physical panel or install anything on a Raspberry Pi.
 
@@ -10,6 +12,99 @@ repository**, initially `https://github.com/disdev/paiper.git`, branch `deploy`.
 Private repository authentication is not implemented. Do not put tokens in
 settings, Git URLs, units or configuration; the manager rejects credential URLs,
 SSH, local paths and other hosts and disables Git configuration rewrites.
+
+## Existing-device dashboard activation
+
+For an **already installed, healthy and calibrated** device, use this short
+one-time command as the original non-root display user after the dashboard change
+is CI-approved and promoted to protected `deploy`:
+
+```sh
+(p="$HOME/.local/share/paiper"; /usr/bin/python3 "$p/manager.py" update &&
+ if [ -f "$p/current/app/deploy/enable-dashboard.py" ]; then
+   /usr/bin/python3 "$p/current/app/deploy/enable-dashboard.py"
+ else
+   echo "Dashboard activation unavailable: check manager status/update logs and retry after deploy promotion." >&2; exit 1
+ fi)
+```
+
+Do not run the bootstrap/install/calibration routine again to enable content.
+The existing stable manager first refreshes the app from `deploy`; only a new
+release needs the updater's normal per-release venv/browser preparation.
+The activation script is then taken from that **already downloaded current app**,
+not main, a development branch or an unreviewed network script. If unavailable,
+the command fails helpfully rather than pretending dashboard was enabled.
+
+Activation checks the authoritative version-1 settings and paths, existing
+healthy safety database, stored boolean panel confirmation, setup provenance
+(if present), current readiness/failure metadata, and a version-1 scene manifest.
+It verifies current still matches the freshly fetched deploy SHA, so an updater
+busy/known-failed skip cannot accidentally enable a stale app. Fix the stated
+cause and rerun; known failed SHAs need an investigated `update --retry`.
+Settings on a branch other than `deploy` are refused. CLI `--root PATH` exists
+for a deliberately custom runtime; use the same root for both manager and activation.
+
+It takes nonblocking **install → update → lifecycle → resolved safety-state
+sibling lock**, reads settings inside those outer locks, and holds them through
+validation and writes. A busy activation returns **1**, not silent success.
+No service is stopped or started; a running refresh is never killed. Missing,
+corrupt or interrupted safety history, unfinished/conflicting first-use
+provenance, unconfirmed/invalid panel YAML, unsupported/failed/currently
+activating releases and malformed declarations fail closed.
+
+Actual candidate CLI status validates a scratch SQLite snapshot without
+migrating it. Both static scenes still get landscape/native six-color PNG
+validation. A dashboard declaration adds actual `preview --scene dashboard
+--offline --cache SCRATCH/content.sqlite3 --dashboard-config SCRATCH/dashboard.yaml`
+in both orientations. Its empty preferences and XDG state/config roots are
+isolated in owned scratch space, including cache-lock files. It neither fetches
+providers nor touches the user's content cache/preferences. A declaration alone
+is not proof of support: failed CLI/render smoke stops activation.
+
+### Durable ordering and recovery
+
+Original controller/settings bytes are saved once as
+`manager.before-dashboard.py` and `settings.before-dashboard.json` under the
+runtime root. Atomic copies are fsynced, including parent directories. The new
+**controller is durably replaced before `scene=dashboard` is atomically written**:
+interruption before replacement leaves the old pair; interruption between writes
+leaves a new controller with the old scene; interruption after settings leaves
+the new pair. Rerunning validates again and completes safely without overwriting
+the original backups. A crash may leave an unused staging/scratch file, not a
+partially written manager or settings. No safety database is restored or replaced.
+
+The explicit operation preserves settings version and all paths, panel YAML
+bytes/calibration, display SQLite bytes, setup choices/provenance, vendor files,
+unit files, drop-ins, timer enablement and cadence. It runs no apt, pip, browser
+install, calibration, GPIO or service-start command. The existing enabled display
+timer uses dashboard at its next safe slot; if disabled, it stays disabled.
+The script validates stored confirmation; it **cannot establish physical
+verification** from a Mac or re-verify wiring.
+
+Ordinary automatic updates **still do not replace the stable manager** and never
+silently reinterpret an explicit `stillness`/`calibration` preference. This
+activation is the narrowly scoped, user-requested controller upgrade; other
+controller/unit upgrades remain explicit installer maintenance.
+
+### Older application compatibility
+
+`deploy/app-capabilities.json` version 1 declares actual CLI scenes. Absence means
+legacy `stillness`/`calibration`; malformed/unknown-version declarations are
+rejected, not guessed from filenames or package versions.
+With dashboard preferred, rolling back to a healthy legacy app uses `stillness`
+and emits **COMPATIBILITY FALLBACK** in activation/display logs. Manager `status`
+shows `preferred_scene`, `effective_scene`, and `compatibility_warning`. The
+stored dashboard preference is retained so a later capable app resumes dashboard.
+The old static smoke remains usable during rollback.
+
+Use the normal `manager.py rollback` for application rollback; it never restores
+the old controller or old safety history. The pre-dashboard controller backup is
+for deliberate operator-reviewed controller recovery only: an old controller
+cannot parse a dashboard setting. Do not copy it over a dashboard-configured
+installation. Under the same maintenance locks, restore a compatible scene
+**before** restoring an old controller, retaining all current paths/vendor
+settings; the settings backup is reference evidence, not permission to overwrite
+later configuration edits. Never restore old safety state to undo an upgrade.
 
 ## Guided setup (recommended)
 
@@ -76,7 +171,9 @@ option. Answers are read from `/dev/tty`, even if bootstrap's stdin is redirecte
 5. **Prepare the app.** The existing installer/manager builds and activates a
    healthy candidate, installs user units and leaves scheduling unchanged
    (`--no-update-timer`). On first installation both timers remain off.
-   Known failed candidates require an explicit retry after fixing the cause.
+   First successful installs select dashboard only when the active release
+   declares support; legacy releases keep stillness. Existing scene choices are
+   retained. Known failed candidates require an explicit retry after fixing the cause.
    Explicitly approved first use initializes the safety database once through
    the healthy candidate's actual `DisplayState`, even if you stay offline.
 6. **Vendor sources.** Reuse a valid configured vendor without modifying it,
@@ -264,7 +361,9 @@ only if absent, then prepares and activates one healthy release **before**
 installing user units and enabling `paiper-update.timer`. Preparation creates a
 per-commit venv with system site packages, installs `requirements.lock`
 constraints and its own Chromium, and validates real offline status and both
-scenes in landscape/native orientation. No staging or activation step uses GPIO.
+static scenes in landscape/native orientation, plus isolated offline dashboard
+when declared. New installs select dashboard only for capable active releases;
+existing choices remain unchanged. No staging or activation step uses GPIO.
 Network/build/browser failures leave the prior active release untouched.
 
 You may omit `--config` for an offline-only install: the unconfirmed example is
@@ -334,6 +433,8 @@ These units are Linux/systemd-specific and are not installed by tests on macOS.
 | Settings | `~/.local/share/paiper/settings.json` |
 | Config | `$XDG_CONFIG_HOME/paiper/config.yaml`, or `~/.config/paiper/config.yaml` |
 | Hardware state | `$XDG_STATE_HOME/paiper/display.sqlite3`, or `~/.local/state/paiper/display.sqlite3` |
+| Content cache | `$XDG_STATE_HOME/paiper/content.sqlite3`, or `~/.local/state/paiper/content.sqlite3`; never the safety DB |
+| Optional dashboard preferences | `dashboard.yaml` beside the authoritative panel config; panel YAML is unchanged |
 | Vendor | Explicit absolute `vendor_lib` outside releases; example above |
 | Units | `$XDG_CONFIG_HOME/systemd/user/paiper-{update,display}.{service,timer}`, or `~/.config/systemd/user/...` |
 | Releases | `~/.local/share/paiper/releases/<40-character-sha>/{app,.venv,browsers}` |
@@ -358,8 +459,9 @@ Configuration, state and vendor paths must stay outside releases. Updater
 activation never updates those files. It takes SQLite-consistent snapshots and
 requires compatible version-1 safety metadata; snapshots are validation copies,
 not hardware state restores. The stable manager and unit files themselves are
-updated only by explicitly rerunning a reviewed checkout's installer. Releases
-cannot self-replace that manager. Keep runtime directories user-owned and do
+updated only through explicit operator maintenance: the reviewed installer, or
+the narrowly scoped dashboard activation above (controller only, not units).
+Ordinary app updates cannot self-replace that manager. Keep runtime directories user-owned and do
 not run untrusted code as this user; this is not a hostile-code sandbox.
 
 ## GitHub checks and deploy promotion
@@ -409,6 +511,58 @@ journalctl --user -u paiper-display.service -n 100 --no-pager
 
 For later manual application `status` commands, use the state path from settings.
 The manager's `status` reads deployment metadata only and never touches GPIO.
+
+### Source-health troubleshooting
+
+Start with `journalctl --user -u paiper-display.service -n 100 --no-pager`.
+Dashboard warnings name the failing source. Preview online refreshes due sources;
+`--offline` never polls or clears backoff. An explicit unavailable `--page` fails
+instead of manufacturing content. Automatic selection may show dated cached
+content, or bundled verse/art if live sources are unavailable.
+
+For an offline health inspection, run from the same user's environment as the
+display timer (including XDG state root). This uses the **content cache only**,
+with location loaded alongside the stored panel config, not a new safety DB:
+
+```sh
+"$HOME/.local/share/paiper/current/.venv/bin/python" - <<'PY'
+import json
+import os
+from datetime import UTC, datetime
+from pathlib import Path
+from paiper.cache import ContentCache
+from paiper.preferences import load_preferences
+from paiper.sources import collect
+
+settings = json.loads((Path.home() / ".local/share/paiper/settings.json").read_text())
+prefs = load_preferences(panel_path=Path(settings["config"]))
+xdg = os.environ.get("XDG_STATE_HOME", "")
+root = Path(xdg) if xdg and Path(xdg).is_absolute() else Path.home() / ".local/state"
+path = root / "paiper/content.sqlite3"
+if not path.is_file():
+    raise SystemExit(f"No content cache yet: {path}; wait for a dashboard slot or preview.")
+if path.resolve() == Path(settings["state"]).resolve() or path.samefile(settings["state"]):
+    raise SystemExit("Refusing content/safety database alias")
+now = datetime.now(UTC)
+with ContentCache(path) as cache:
+    records = collect(cache, now, latitude=prefs.latitude, longitude=prefs.longitude,
+                      timezone=prefs.timezone, offline=True)
+    for key, record in records.items():
+        print(key, record.status(now), "asof=", record.observed_at,
+              "fetched=", record.fetched_at, "next=", record.next_fetch_at,
+              "failures=", record.failures, "error=", record.error)
+PY
+```
+
+This inspects cached records, not provider availability; raw weather status
+describes the short current-model interval while a still-valid forecast can
+remain eligible on the dashboard. Check dates and the page's forecast label too.
+Do not repeatedly force live probes to defeat backoff. Check DNS/HTTPS access,
+provider throttling/outages, clock accuracy, configured location/time zone and
+cache permissions. A stale quote/reference rate is not a real-time price; empty
+NWS results are not “all clear”; flights are bounded observations, not radar.
+Keep both caches and safety history for diagnosis; never delete safety state,
+change its path or clear an interrupted-attempt marker to recover sources.
 
 Preparation and health failures report the stage and exit status, timeout, or OS
 error with sanitized stderr/stdout excerpts. These distinguish causes such as
