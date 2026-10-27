@@ -52,9 +52,25 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          live_main="$(git ls-remote --exit-code origin refs/heads/main | cut -f1)"
-          if [ "$live_main" != "$GITHUB_SHA" ]; then
-            echo "Main moved after this run; leave deployment to the newer successful run."
-            exit 0
-          fi
-          git push origin "$GITHUB_SHA:refs/heads/deploy"
+          for attempt in {1..21}; do
+            live_main="$(git ls-remote --exit-code origin refs/heads/main | cut -f1)"
+            if [ "$live_main" != "$GITHUB_SHA" ]; then
+              echo "Main moved after this run; leave deployment to the newer successful run."
+              exit 0
+            fi
+            if output="$(git push origin "$GITHUB_SHA:refs/heads/deploy" 2>&1)"; then
+              printf '%s\n' "$output"
+              exit 0
+            fi
+            printf '%s\n' "$output" >&2
+            if [[ "$output" != *'GH006: Protected branch update failed'* ||
+                  "$output" != *'Required status check "ci" is in progress.'* ]]; then
+              exit 1
+            fi
+            if [ "$attempt" -eq 21 ]; then
+              echo "Required ci check is still pending after five minutes; deploy was not advanced." >&2
+              exit 1
+            fi
+            echo "Waiting for GitHub to publish the completed ci check (attempt $attempt/21)."
+            sleep 15
+          done
