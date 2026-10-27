@@ -10,20 +10,29 @@
 </head>
 <body>
   <header data-fit>
-    <strong data-fit data-editorial-lines="1">{{ page.title }}</strong>
-    <span data-fit title="Rendered {{ generated }}">{{ clock }}</span>
+    <strong data-fit>PAIPER</strong>
+    <span data-fit>{{ local_date }}</span>
+    {% if weather %}<span class="weather-summary" data-fit>{{ weather }}</span>{% endif %}
+    <span data-fit title="Rendered {{ generated }}">Updated {{ clock }}</span>
   </header>
-  <main class="{{ page.layout }}" data-fit>
+  <main class="{{ page.layout }} scene-{{ page.key }}" data-fit>
     {% if photo %}
     <img data-fit src="data:image/png;base64,{{ photo }}" width="560" height="246" alt="Photograph">
+    <h1 class="identity" data-fit data-editorial-lines="1">{{ page.title }} · {{ page.blocks[0].text }}</h1>
+    {% else %}
+    <h1 class="identity" data-fit data-editorial-lines="1">{{ page.title }}</h1>
+    <div class="blocks" data-fit>
+      {% for block in page.blocks %}
+      <section data-fit>
+        {% if block.label %}<div class="label" data-fit>{{ block.label }}</div>{% endif %}
+        {% if page.layout == "markets" %}<div class="quote-meta" data-fit>{% endif %}
+        <div class="text {{ block.tone }}" data-fit{% if page.layout == "headline" %} data-editorial-lines="5"{% elif page.layout == "club-news" %} data-editorial-lines="{{ 4 if loop.first else 1 }}"{% elif page.layout == "morning" %} data-editorial-lines="{{ 2 if loop.first else 1 }}"{% elif page.layout == "flights" %} data-editorial-lines="1"{% endif %}>{{ block.text }}</div>
+        {% if block.detail %}<div class="detail" data-fit>{{ block.detail }}</div>{% endif %}
+        {% if page.layout == "markets" %}</div>{% endif %}
+      </section>
+      {% endfor %}
+    </div>
     {% endif %}
-    {% for block in page.blocks %}
-    <section data-fit>
-      {% if block.label %}<div class="label" data-fit>{{ block.label }}</div>{% endif %}
-      <div class="text" data-fit{% if page.layout == "headline" %} data-editorial-lines="6"{% elif page.layout == "morning" %} data-editorial-lines="2"{% endif %}>{{ block.text }}</div>
-      {% if block.detail %}<div class="detail" data-fit>{{ block.detail }}</div>{% endif %}
-    </section>
-    {% endfor %}
   </main>
   <footer data-fit>
     <div data-fit>{{ page.source }}</div>

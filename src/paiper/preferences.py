@@ -23,7 +23,7 @@ PAGES = (
 )
 DEFAULT_PLAYLISTS = {
     "morning": ("morning", "verse", "weather", "cardinals"),
-    "day": ("markets", "ai", "news", "usd-pen", "gallery", "flights"),
+    "day": ("markets", "ai", "news", "cardinals", "usd-pen", "gallery", "flights"),
     "evening": ("cardinals", "weather", "gallery", "news", "usd-pen", "verse"),
     "night": ("verse", "gallery"),
 }

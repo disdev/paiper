@@ -66,6 +66,88 @@ def test_independent_quotes_and_original_dates():
     assert "OFFLINE" not in text(page)
 
 
+def test_shared_masthead_uses_local_date_and_only_valid_weather():
+    from dataclasses import replace
+
+    from paiper.render import render_dashboard_html
+
+    value = weather()
+    records = {"weather": record("weather", value)}
+    for page in build(records):
+        html = render_dashboard_html(page, NOW, "America/Chicago")
+        header = html.split("<header", 1)[1].split("</header>", 1)[0]
+        assert "PAIPER" in header
+        assert "Tue Oct 27" in header
+        assert "Updated 11:00 CDT" in header
+        assert "72°F fcst" in header
+        expired = render_dashboard_html(
+            page, NOW + timedelta(hours=7), "America/Chicago"
+        )
+        assert "72°F" not in expired.split("</header>", 1)[0]
+    value = replace(
+        value, current=replace(value.current, valid_until=NOW + timedelta(minutes=15))
+    )
+    page = build({"weather": record("weather", value)})[0]
+    assert "70°F model" in render_dashboard_html(page, NOW, "America/Chicago")
+    fallback = build({})[0]
+    html = render_dashboard_html(fallback, NOW.replace(hour=2), "America/Chicago")
+    assert "Mon Oct 26" in html and "Updated 21:00 CDT" in html
+    assert "°F" not in html.split("</header>", 1)[0]
+
+
+def test_flight_focal_data_and_concise_notices():
+    from paiper.content import Aircraft, Flights
+
+    aircraft = Aircraft(
+        "abc123", "N92CF", None, "SIRA", 1070, None, 9.1, 55, 35.1, -92.3, NOW
+    )
+    page = next(
+        p
+        for p in build({"flights": record("flights", Flights(NOW, (aircraft,)))})
+        if p.key == "flights"
+    )
+    assert page.blocks[0].text == "N92CF"
+    assert page.blocks[1].text == "1,070 ft"
+    assert "Oct 27 2026 11:00 CDT" in text(page)
+    assert "observations, not radar" in page.source
+    assert "No route inferred" not in text(page)
+    assert len(page.blocks) == 2
+    quote = Quote("BLKB", "USD", 50, NOW, 51, NOW.date())
+    market = next(
+        p for p in build({"blkb": record("blkb", quote)}) if p.key == "markets"
+    )
+    assert "Delayed" in market.freshness and "as-of" in market.freshness
+    assert "session status inferred" not in text(market)
+    assert "no endorsement" not in text(
+        next(p for p in build({}) if p.key == "gallery")
+    )
+
+
+@pytest.mark.parametrize(
+    ("price", "previous", "tone", "change"),
+    [
+        (51, 50, "positive", "+2.00%"),
+        (49, 50, "negative", "-2.00%"),
+        (50, 50, "", "+0.00%"),
+        (1e308, 0.001, "", "Change unavailable"),
+    ],
+)
+def test_quote_accents_require_a_finite_signed_change(price, previous, tone, change):
+    page = next(
+        p
+        for p in build(
+            {
+                "blkb": record(
+                    "blkb", Quote("BLKB", "USD", price, NOW, previous, NOW.date())
+                )
+            }
+        )
+        if p.key == "markets"
+    )
+    assert page.blocks[0].text == change
+    assert page.blocks[0].tone == tone
+
+
 def test_forecast_outlives_current_model_but_expires():
     from paiper.dashboard import outdoor_window
 

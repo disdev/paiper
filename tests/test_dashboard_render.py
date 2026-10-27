@@ -138,6 +138,10 @@ def test_every_page_real_chromium(key, page_contexts, monkeypatch):
 
     def check(page):
         original(page)
+        assert "PAIPER" in page.locator("header").inner_text()
+        assert "Updated 11:00 CDT" in page.locator("header").inner_text()
+        assert context.title in page.locator("main").inner_text()
+        assert page.locator("footer > div").count() <= 3
         assert page.locator("header, main, footer").evaluate_all(
             "es => es.map(e => e.getBoundingClientRect().height)"
         ) == [48, 304, 48]
@@ -151,6 +155,31 @@ def test_every_page_real_chromium(key, page_contexts, monkeypatch):
                     "e => parseFloat(getComputedStyle(e).fontSize)"
                 )
                 >= 40
+            )
+        if key == "flights":
+            assert all(
+                size >= 40
+                for size in page.locator("section .text").evaluate_all(
+                    "es => es.map(e => parseFloat(getComputedStyle(e).fontSize))"
+                )
+            )
+        if key in ("news", "ai", "verse"):
+            assert "PaperSerif" in page.locator("section .text").first.evaluate(
+                "e => getComputedStyle(e).fontFamily"
+            )
+        if key in ("cardinals", "weather", "flights"):
+            accent = "rgb(255, 0, 0)" if key == "cardinals" else "rgb(0, 0, 255)"
+            assert (
+                page.locator(".identity").evaluate("e => getComputedStyle(e).color")
+                == accent
+            )
+        if key == "markets":
+            assert page.locator("section .text").first.inner_text().startswith("+")
+            assert (
+                page.locator("section .text").first.evaluate(
+                    "e => getComputedStyle(e).color"
+                )
+                == "rgb(0, 128, 0)"
             )
         assert page.locator("body, [data-fit]:not(img)").evaluate_all(
             "es => es.every(e => !['hidden','clip'].includes(getComputedStyle(e).overflow))"
@@ -204,10 +233,46 @@ def test_wide_unbroken_headlines_remain_legible(key):
 
     feed = Feed("Publisher", (Article("wide", "W" * 240, "https://example.org", NOW),))
     for context in build_pages({key: record(key, feed)}, NOW, Preferences()):
-        if context.layout in ("headline", "morning"):
+        if context.layout in ("headline", "club-news", "morning"):
             assert "…" in render.render_dashboard_html(context, NOW, "America/Chicago")
             frame = render.render_dashboard(context, NOW)
             frame.save(ARTIFACTS / f"{key}-{context.key}-wide.png")
+
+
+@pytest.mark.parametrize("degraded", [False, True])
+def test_offseason_headline_and_schedule_real_chromium(degraded):
+    from test_dashboard import record
+
+    schedule = game_record()["cardinals"].payload
+    next_game = replace(
+        schedule.games[0],
+        date=NOW.date() + timedelta(days=115),
+        abstract_status="Preview",
+        detailed_status="Scheduled",
+        start_at=None,
+        start_time_tbd=True,
+    )
+    records = {
+        "cardinals": record("cardinals", replace(schedule, games=(next_game,))),
+        "cardinals_news": record(
+            "cardinals_news",
+            Feed("MLB", (Article("wide", "W" * 240, "https://example.org", NOW),)),
+        ),
+    }
+    if degraded:
+        records["cardinals"] = replace(
+            records["cardinals"],
+            error="unavailable",
+            valid_until=NOW - timedelta(minutes=1),
+        )
+    context = next(
+        p for p in build_pages(records, NOW, Preferences()) if p.key == "cardinals"
+    )
+    assert context.layout == "club-news"
+    frame = render.render_dashboard(context, NOW)
+    frame.save(
+        ARTIFACTS / f"cardinals-offseason-{'degraded' if degraded else 'wide'}.png"
+    )
 
 
 def test_long_teams_and_large_missing_values():

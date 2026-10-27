@@ -36,6 +36,14 @@ class Block:
     label: str
     text: str
     detail: str = ""
+    tone: str = ""
+
+
+@dataclass(frozen=True)
+class MastheadWeather:
+    text: str
+    valid_from: datetime
+    valid_until: datetime
 
 
 @dataclass(frozen=True)
@@ -50,6 +58,7 @@ class Page:
     photo: bytes | None = None
     content_ids: tuple[str, ...] = ()
     expires_at: datetime | None = None
+    weather: MastheadWeather | None = None
 
 
 def shorten(text: str, limit: int) -> str:
@@ -190,7 +199,7 @@ def gallery(directory: Path | None) -> tuple[Page, ...]:
             "Earthrise",
             (Block("", "Apollo 8 · December 1968"),),
             "NASA/Bill Anders · educational collection",
-            "Bundled image · no endorsement",
+            "Apollo 8 archive · December 1968",
             "gallery",
             _photo(data),
             ("photo:nasa-earthrise",),
@@ -243,15 +252,26 @@ def build_pages(
         "verse",
     )
     weather = payload("weather", Weather)
+    masthead_weather = None
     if weather and weather.valid_from <= now < weather.valid_until:
         current = weather.current
         future = next((h for h in weather.hourly if now <= h.at), None)
         if current.observed_at <= now < current.valid_until:
             temperature, label = current.temperature_f, "Modeled conditions"
             detail = "Model " + stamp(current.observed_at, prefs.timezone)
+            masthead_weather = MastheadWeather(
+                f"{temperature:.0f}°F model",
+                current.observed_at,
+                min(current.valid_until, weather.valid_until),
+            )
         elif future:
             temperature, label = future.temperature_f, "Hourly forecast"
             detail = "For " + stamp(future.at, prefs.timezone)
+            masthead_weather = MastheadWeather(
+                f"{temperature:.0f}°F fcst",
+                now,
+                min(future.at + timedelta(hours=1), weather.valid_until),
+            )
         else:
             temperature, label, detail = None, "Forecast", "Current model unavailable"
         day = next((d for d in weather.daily if d.date == local.date()), None)
@@ -296,6 +316,20 @@ def build_pages(
         )
 
     schedule = payload("cardinals", Schedule)
+    club_reading = not schedule or not any(
+        g.date == local.date()
+        or (g.abstract_status == "Live" and 0 <= (local.date() - g.date).days <= 1)
+        for g in schedule.games
+    )
+    next_game = (
+        min(
+            (g for g in schedule.games if g.date > local.date()),
+            key=lambda g: (g.date, g.game_number or 0),
+            default=None,
+        )
+        if schedule
+        else None
+    )
     if schedule and schedule.games:
 
         def order(game):
@@ -395,20 +429,53 @@ def build_pages(
         if feed:
             for item in feed.items[:10]:
                 ident = "story:" + key + ":" + item.id
+                blocks = (
+                    Block(
+                        "Published " + stamp(item.published_at, prefs.timezone),
+                        shorten(item.title, 170),
+                    ),
+                )
+                layout = "headline"
+                if key == "cardinals_news" and club_reading:
+                    layout = "club-news"
+                    if next_game:
+                        opponent = (
+                            next_game.away
+                            if next_game.home.id == 138
+                            else next_game.home
+                        )
+                        timing = (
+                            stamp(next_game.date, prefs.timezone) + " · TBD"
+                            if next_game.start_time_tbd or next_game.start_at is None
+                            else stamp(next_game.start_at, prefs.timezone)
+                        )
+                        blocks += (
+                            Block(
+                                "Next game · " + timing,
+                                ("vs " if next_game.home.id == 138 else "@ ")
+                                + shorten(opponent.name, 42),
+                                health("cardinals"),
+                            ),
+                        )
+                    else:
+                        blocks += (
+                            Block(
+                                "Next game",
+                                "Schedule unavailable"
+                                if not schedule
+                                else "No game returned",
+                                health("cardinals"),
+                            ),
+                        )
                 pages.append(
                     Page(
                         page_key,
                         ident,
                         title,
-                        (
-                            Block(
-                                "Published " + stamp(item.published_at, prefs.timezone),
-                                shorten(item.title, 170),
-                            ),
-                        ),
+                        blocks,
                         source,
                         health(key),
-                        "headline",
+                        layout,
                         content_ids=(ident,),
                     )
                 )
@@ -419,17 +486,17 @@ def build_pages(
             quote = payload(key, Quote)
             if quote:
                 percent = quote.change_percent
+                tone = ""
                 if percent is not None and math.isfinite(percent):
                     delta = (
                         f"{percent:+.2f}" if abs(percent) < 10000 else f"{percent:+.2e}"
                     )
-                    change = delta + "% vs previous close"
-                else:
-                    change = (
-                        "Previous close unavailable"
-                        if percent is None
-                        else "Change unavailable"
+                    change = delta + "%"
+                    tone = (
+                        "positive" if percent > 0 else "negative" if percent < 0 else ""
                     )
+                else:
+                    change = "Change unavailable"
                 blocks.append(
                     Block(
                         key.upper() + " · " + number(quote.price, money=True),
@@ -442,20 +509,19 @@ def build_pages(
                             else ""
                         )
                         + stamp(quote.observed_at, prefs.timezone),
+                        tone,
                     )
                 )
             else:
-                blocks.append(
-                    Block(key.upper(), "Unavailable", "Other quotes remain independent")
-                )
+                blocks.append(Block(key.upper(), "Unavailable"))
         pages.append(
             Page(
                 "markets",
                 "markets",
                 "Market Postcard",
                 tuple(blocks),
-                "Yahoo Finance · USD · dated quotes",
-                "Not real-time · no session status inferred",
+                "Yahoo Finance · USD · vs previous close",
+                "Delayed quotes · as-of times above",
                 "markets",
             )
         )
@@ -487,7 +553,7 @@ def build_pages(
             altitude = (
                 "On ground"
                 if aircraft.on_ground
-                else f"{number(aircraft.altitude_ft)} ft"
+                else f"{aircraft.altitude_ft:,.0f} ft"
                 if aircraft.altitude_ft is not None
                 else "Altitude unknown"
             )
@@ -517,14 +583,10 @@ def build_pages(
                         Block(
                             aircraft.aircraft_type or "Type unknown", altitude, distance
                         ),
-                        Block(
-                            "Limited receiver coverage",
-                            "No route inferred",
-                            "Not a complete view of the sky",
-                        ),
                     ),
-                    "adsb.lol · nearby aircraft observations",
+                    "adsb.lol · observations, not radar",
                     health("flights"),
+                    "flights",
                     content_ids=(ident,),
                 )
             )
@@ -637,4 +699,7 @@ def build_pages(
                 photo, freshness="Live sources unavailable · bundled/local art"
             )
         pages.append(photo)
-    return tuple(pages)
+    # Keep scorecards available to priority selection; offseason normal slots
+    # lead with sourced reporting and carry the next game as context.
+    pages.sort(key=lambda p: p.layout != "club-news")
+    return tuple(replace(page, weather=masthead_weather) for page in pages)

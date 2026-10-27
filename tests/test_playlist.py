@@ -121,6 +121,115 @@ def test_final_extra_slot_exactly_once():
     assert second.page.key != "cardinals"
 
 
+def test_offseason_news_and_next_game_survive_recent_item_rotation():
+    from dataclasses import replace
+
+    from paiper.content import Article, Feed
+    from paiper.dashboard import build_pages
+    from paiper.playlist import select_page
+    from paiper.preferences import Preferences
+
+    records = game_record("Preview")
+    schedule = records["cardinals"].payload
+    future = replace(
+        schedule.games[0],
+        date=NOW.date() + timedelta(days=115),
+        start_at=None,
+        start_time_tbd=True,
+        inning=None,
+        inning_half=None,
+    )
+    records["cardinals"] = replace(
+        records["cardinals"], payload=replace(schedule, games=(future,))
+    )
+    records["cardinals_news"] = SourceRecord(
+        "cardinals_news",
+        Feed(
+            "MLB",
+            tuple(
+                Article(str(i), f"Club headline {i}", "https://example.org", NOW)
+                for i in range(2)
+            ),
+        ),
+        NOW,
+        valid_until=NOW + timedelta(minutes=30),
+    )
+    prefs = Preferences(playlists={"day": ("cardinals",)})
+    available = build_pages(records, NOW, prefs)
+    state = {}
+    selected = []
+    for _ in range(4):
+        choice = select_page(available, records, NOW, prefs, state)
+        selected.append(choice.page.id)
+        assert choice.page.blocks[0].text.startswith("Club headline")
+        assert "MLB" in choice.page.source
+        summary = " ".join(
+            f"{b.label} {b.text} {b.detail}" for b in choice.page.blocks[1:]
+        )
+        assert "Feb 19 2027" in summary and "TBD" in summary
+        assert "Los Angeles Dodgers" in summary
+        assert "—" not in summary
+        state = choice.state
+    assert selected == ["story:cardinals_news:0", "story:cardinals_news:1"] * 2
+    # Relevant finals still get their matching one-off priority, not a news story.
+    final = replace(
+        future,
+        id=43,
+        date=NOW.date() - timedelta(days=1),
+        abstract_status="Final",
+        detailed_status="Final",
+    )
+    records["cardinals"] = replace(
+        records["cardinals"], payload=replace(schedule, games=(future, final))
+    )
+    available = build_pages(records, NOW, prefs)
+    choice = select_page(available, records, NOW, prefs, {})
+    assert choice.page.id == "game:43" and choice.state["finals"] == ["43"]
+
+
+def test_default_daytime_reaches_club_news():
+    from paiper.playlist import select_page
+    from paiper.preferences import Preferences
+
+    state = {}
+    chosen = []
+    for _ in range(7):
+        choice = select_page(pages(), {}, NOW, Preferences(), state)
+        chosen.append(choice.page.key)
+        state = choice.state
+    assert "cardinals" in chosen
+
+
+def test_doubleheader_final_cards_keep_distinct_priority_and_game_numbers():
+    from dataclasses import replace
+
+    from paiper.dashboard import build_pages
+    from paiper.playlist import select_page
+    from paiper.preferences import Preferences
+
+    records = game_record("Final")
+    schedule = records["cardinals"].payload
+    games = tuple(
+        replace(schedule.games[0], id=42 + i, doubleheader="Y", game_number=i + 1)
+        for i in range(2)
+    )
+    records["cardinals"] = replace(
+        records["cardinals"], payload=replace(schedule, games=games)
+    )
+    available = build_pages(records, NOW, Preferences())
+    for i in range(2):
+        card = next(p for p in available if p.id == f"game:{42 + i}")
+        assert f"Game {i + 1}" in card.blocks[-1].detail
+    state = {}
+    priority = []
+    for _ in range(5):
+        choice = select_page(available, records, NOW, Preferences(), state)
+        if choice.state["last_priority"]:
+            priority.append(choice.page.id)
+        state = choice.state
+    assert priority == ["game:42", "game:43"]
+
+
 def test_flight_limits_are_persisted():
     from paiper.dashboard import Block, Page
     from paiper.playlist import select_page

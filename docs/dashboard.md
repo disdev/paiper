@@ -46,7 +46,7 @@ timezone: America/Chicago
 photo_directory: photos
 playlists:
   morning: [morning, verse, weather, cardinals]
-  day: [markets, ai, news, usd-pen, gallery, flights]
+  day: [markets, ai, news, cardinals, usd-pen, gallery, flights]
   evening: [cardinals, weather, gallery, news, usd-pen, verse]
   night: [verse, gallery]
 ```
@@ -69,14 +69,14 @@ live price or exchange-session status is claimed. No refresh cadence is changed.
 | --- | --- |
 | `morning` | One BBC headline, available Conway weather/rain/wind, today's returned MLB game, one complete short WEB verse. Dates distinguish publication/model/fetch. |
 | `weather` | Current modeled temperature while valid; otherwise a valid future hourly forecast, high/low, rain/wind and an outdoor-window suggestion. |
-| `cardinals` | Individual scores (missing stays `—`), game/start dates, MLB status, optional pitchers; upcoming schedules, previous results and club headlines rotate. An empty schedule states the returned window. |
+| `cardinals` | Individual scores (missing stays `—`), game/start dates, MLB status and optional pitchers. Without a relevant live/today game, sourced club headlines lead, with next-game date, opponent and supplied start/TBD. An empty schedule states the returned window. |
 | `markets` | Independent BLKB, VTI and VOO USD quotes, observation dates and available previous-close change. Missing tickers do not erase the others. |
 | `usd-pen` | US $1/$20/$100 converted at the dated Frankfurter daily reference rate, not a cash/bank quote. |
 | `news` | Source-attributed BBC World headlines with original publication dates, not fetch dates masquerading as publication. |
 | `ai` | OpenAI publisher headlines, explicitly a publisher feed rather than comprehensive AI coverage. |
 | `verse` | Seven verified complete public-domain WEB verses rotate by local calendar date. |
 | `gallery` | Bounded local PNG/JPEG/WebP discovery plus NASA/Bill Anders Earthrise. |
-| `flights` | Above the configured location: position snapshots younger than two minutes or an explicitly dated observation digest. Unknown values stay unknown; no routes or destinations inferred. |
+| `flights` | Above the configured location: large callsign and comma-separated altitude, supplied type/distance, and explicit observation time. Position snapshots younger than two minutes or an explicitly dated digest; observations, not radar. Unknown values stay unknown; no routes or destinations inferred. |
 | `alert` | Effective, unexpired NWS Severe/Extreme alerts, issue/expiry times and a supplementary-warning disclaimer. No “all clear.” |
 
 Weather forecast eligibility uses the outer hourly forecast validity, **not**
@@ -90,7 +90,11 @@ Source degradation/stale-cache timestamps remain visible; quote dates remain
 old after refetch, and article dates remain their original publication dates.
 All usable live content missing means honest sources-unavailable verse/art,
 not a fabricated weather/score/price. Healthy online pages never say OFFLINE.
-The header clock describes rendering, not a live clock or observation time.
+The shared PAIPER masthead shows the local date, a short valid modeled temperature
+(`model`) or hourly forecast (`fcst`), and `Updated HH:MM TZ`. This is rendering
+time, not a live clock or observation time. Weather is omitted if unavailable
+and rechecked against its validity interval when rendering a prepared context.
+Page identity sits inside the hero, not in place of this shared strip.
 
 ## Rotation and persistence
 
@@ -114,6 +118,13 @@ today/yesterday gets one extra slot per game ID. Older cached Live never wins
 priority. Final history is bounded but the eligible date window prevents old
 seasons returning as “new” finals.
 
+On days without a relevant live/today game, normal Cardinals slots choose among
+club stories, retaining unseen/least-recent deduplication rather than cycling
+through distant unscored schedule cards. Each story includes the next scheduled
+game when supplied. Matching scorecards remain available for final-result
+priority, including separate doubleheader results. Cardinals also appears in the
+default daytime playlist; explicit user playlists are unchanged.
+
 Flights have no interrupt priority. Every flight slot, including an explicit
 request, respects one per 30 minutes and no repeat aircraft within an hour.
 Persistent flight bounds start at successful display completion. Previews
@@ -133,7 +144,13 @@ than falsely recording an undisplayed frame.
 ## Rendering, media and limitations
 
 Every frame is RGB 600×400 with 48/304/48 bands and exactly the native six-pigment
-palette. Metadata is at least 18 px; body text is 24–30 px, focal values 40–48 px.
+palette. Metadata is at least 18 px; body text is 24–30 px, focal values 40–56 px.
+Newsreader serif leads headlines and key numbers. Thin separators distinguish
+facts, Cardinals uses restrained red, weather/flights blue, and finite market
+changes retain their signs alongside green gains/red losses. Unavailable changes
+remain neutral. The context rail has two metadata lines, not implementation
+disclaimers; delayed/as-of quotes, reference-not-cash rates, source dates and
+supplementary NWS warnings remain explicit.
 Long headlines receive explicit editorial ellipses based on actual loaded font
 metrics; no clipping or smaller-font workaround. Layout overflows fail.
 Only the photo rectangle is Floyd–Steinberg dithered; UI stays crisp.

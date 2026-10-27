@@ -72,7 +72,14 @@ def render_dashboard_html(context, now: datetime, timezone: str) -> str:
         .render(
             page=context,
             generated=stamp(now, timezone),
+            local_date=now.astimezone(ZoneInfo(timezone)).strftime("%a %b %d"),
             clock=now.astimezone(ZoneInfo(timezone)).strftime("%H:%M %Z"),
+            weather=(
+                context.weather.text
+                if context.weather
+                and context.weather.valid_from <= now < context.weather.valid_until
+                else ""
+            ),
             photo=photo,
             **_fonts(),
             css=files("paiper").joinpath("templates", "dashboard.css").read_text(),

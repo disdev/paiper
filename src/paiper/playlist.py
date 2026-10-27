@@ -62,6 +62,10 @@ def select_page(
 
     def first(key):
         candidates = [p for p in available if p.key == key]
+        if key == "cardinals":
+            club_news = [p for p in candidates if p.layout == "club-news"]
+            if club_news:
+                candidates = club_news
         if not candidates:
             return None
 
