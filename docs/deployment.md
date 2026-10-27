@@ -375,6 +375,11 @@ The workflow default is `contents: read`; only the separate `promote` job has
 SHA, and pushes it to `deploy` without force. A stale successful run skips
 promotion; a diverged deploy branch fails rather than discarding history.
 Promotion concurrency is serialized without canceling an in-flight push.
+GitHub can briefly report a completed CI job as still in progress to branch
+protection. Promotion retries only that specific rejection every 15 seconds
+for up to five minutes, rechecking live main before each push. Other failures
+stop immediately; exhausted retries leave deploy unchanged. No protection is
+bypassed or disabled.
 GitHub's workflow token does not trigger a second push workflow; deploy
 protection uses the existing passing `ci` on that exact tested commit.
 

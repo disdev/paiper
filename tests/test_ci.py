@@ -1,6 +1,7 @@
 """Validate workflow boundaries and execute promotion against real local Git."""
 
 import os
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -60,7 +61,18 @@ def test_only_successful_main_push_can_promote(workflow):
     assert checkout["with"]["fetch-depth"] == "0"
 
 
-@pytest.mark.parametrize("scenario", ["current", "stale", "diverged"])
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        "current",
+        "stale",
+        "diverged",
+        "pending",
+        "pending-exhausted",
+        "pending-stale",
+        "denied",
+    ],
+)
 def test_promotion_shell_checks_live_main_and_never_forces(
     workflow, tmp_path, scenario
 ):
@@ -93,6 +105,44 @@ def test_promotion_shell_checks_live_main_and_never_forces(
         git(source, "commit", "-m", "diverged")
         divergent = git(source, "rev-parse", "HEAD")
         git(source, "push", "origin", "other:deploy")
+    attempts = remote / "push-attempts"
+    waits = tmp_path / "waits"
+    env = {**os.environ, "GITHUB_SHA": tested}
+    if scenario in ("pending", "pending-exhausted", "pending-stale", "denied"):
+        hook = remote / "hooks/pre-receive"
+        error = (
+            'Required status check "ci" is in progress.'
+            if scenario != "denied"
+            else "Permission denied."
+        )
+        hook.write_text(
+            "#!/bin/sh\n"
+            "attempt=0\n"
+            "if [ -f push-attempts ]; then attempt=$(cat push-attempts); fi\n"
+            "attempt=$((attempt + 1))\n"
+            "printf '%s\\n' \"$attempt\" > push-attempts\n"
+            + (
+                'if [ "$attempt" -gt 2 ]; then exit 0; fi\n'
+                if scenario == "pending"
+                else ""
+            )
+            + "echo 'error: GH006: Protected branch update failed for refs/heads/deploy.' >&2\n"
+            + f"echo {shlex.quote(error)} >&2\nexit 1\n"
+        )
+        hook.chmod(0o755)
+        helpers = tmp_path / "helpers"
+        helpers.mkdir()
+        sleeper = helpers / "sleep"
+        sleeper.write_text(
+            f"#!/bin/sh\nprintf '%s\\n' \"$1\" >> {shlex.quote(str(waits))}\n"
+            + (
+                f"git --git-dir {shlex.quote(str(remote))} update-ref refs/heads/main {first}\n"
+                if scenario == "pending-stale"
+                else ""
+            )
+        )
+        sleeper.chmod(0o755)
+        env["PATH"] = str(helpers) + os.pathsep + os.environ["PATH"]
     commands = [
         step["run"] for step in workflow["jobs"]["promote"]["steps"] if "run" in step
     ]
@@ -101,17 +151,31 @@ def test_promotion_shell_checks_live_main_and_never_forces(
         ["bash", "-e", "-u", "-o", "pipefail", "-c", commands[0]],
         check=False,
         cwd=source,
-        env={**os.environ, "GITHUB_SHA": tested},
+        env=env,
         capture_output=True,
         text=True,
     )
     actual = git(remote, "--git-dir", str(remote), "rev-parse", "deploy")
-    if scenario == "current":
+    if scenario in ("current", "pending"):
         assert result.returncode == 0, result.stderr
         assert actual == tested
-    elif scenario == "stale":
+        if scenario == "pending":
+            assert attempts.read_text().strip() == "3"
+            assert waits.read_text().splitlines() == ["15", "15"]
+    elif scenario in ("stale", "pending-stale"):
         assert result.returncode == 0, result.stderr
         assert actual == first
+        if scenario == "pending-stale":
+            assert attempts.read_text().strip() == "1"
+    elif scenario in ("pending-exhausted", "denied"):
+        assert result.returncode != 0
+        assert actual == first
+        if scenario == "pending-exhausted":
+            assert attempts.read_text().strip() == "21"
+            assert waits.read_text().splitlines() == ["15"] * 20
+        else:
+            assert attempts.read_text().strip() == "1"
+            assert not waits.exists()
     else:
         assert result.returncode != 0
         assert actual == divergent
