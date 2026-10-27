@@ -158,6 +158,31 @@ def test_forecast_outlives_current_model_but_expires():
     assert not any(p.key == "weather" for p in build(records, NOW + timedelta(hours=7)))
 
 
+@pytest.mark.parametrize("elapsed,stale", [(0, False), (9, True)])
+@pytest.mark.parametrize("error", [None, "Provider unavailable"])
+def test_forecast_freshness_uses_polling_not_expired_current_conditions(
+    elapsed, stale, error
+):
+    from dataclasses import replace
+
+    source = replace(
+        record("weather", weather()),
+        fetched_at=NOW - timedelta(minutes=21),
+        valid_until=NOW - timedelta(minutes=6),
+        next_fetch_at=NOW + timedelta(minutes=9),
+        error=error,
+    )
+    page = next(
+        p
+        for p in build({"weather": source}, NOW + timedelta(minutes=elapsed))
+        if p.key == "weather"
+    )
+    assert page.blocks[0].label == "Hourly forecast"
+    assert ("stale" in page.freshness) == stale
+    assert ("degraded" in page.freshness) == bool(error)
+    assert "Oct 27 2026 10:39 CDT" in page.freshness
+
+
 def test_alerts_expire_at_selection_time():
     from paiper.playlist import select_page
     from paiper.preferences import Preferences

@@ -232,7 +232,15 @@ def build_pages(
         flags = []
         if record.error:
             flags.append("degraded")
-        if record.is_stale(now):
+        stale = record.is_stale(now)
+        if isinstance(record.payload, Weather):
+            # Forecasts outlive the short current-condition model interval.
+            forecast = record.payload
+            stale = (
+                not forecast.valid_from <= now < forecast.valid_until
+                or record.is_due(now)
+            )
+        if stale:
             flags.append("stale cache")
         return (
             (", ".join(flags) + " · " if flags else "")
