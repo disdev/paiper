@@ -11,12 +11,169 @@ Private repository authentication is not implemented. Do not put tokens in
 settings, Git URLs, units or configuration; the manager rejects credential URLs,
 SSH, local paths and other hosts and disables Git configuration rewrites.
 
-## 1. Fresh Raspberry Pi bootstrap
+## Guided setup (recommended)
+
+Supported: **Raspberry Pi 5 Model B, 64-bit Raspberry Pi OS Bookworm/Trixie
+(Debian 12/13), distro `/usr/bin/python3` >=3.11**. A network connection, `curl`,
+a terminal (including SSH), sufficient disk space, a reliable clock and the
+ordinary user's working systemd session are required. Other boards, generic
+Debian/Ubuntu installations, 32-bit userspaces and root execution are rejected.
+Hardware is identified from device-tree/OS metadata, never by importing a driver.
+
+Run this single compound shell command as the intended display user:
+
+```sh
+(umask 077; setup_dir="$HOME/.paiper-setup-$(/usr/bin/python3 -c 'import uuid; print(uuid.uuid4().hex)')" &&
+ mkdir -- "$setup_dir" &&
+ curl --fail --location --proto '=https' --tlsv1.2 \
+   https://raw.githubusercontent.com/disdev/paiper/deploy/deploy/bootstrap.sh \
+   --output "$setup_dir/bootstrap.sh" &&
+ sh "$setup_dir/bootstrap.sh")
+```
+
+This entrypoint is available **after the guided-setup change passes CI and is
+promoted to `deploy`**. Until then, use a reviewed local checkout's
+`/usr/bin/python3 deploy/setup.py`; do not publish an untested branch to deploy.
+The command downloads into a newly created, unpredictable, private directory;
+`&&` prevents executing a failed/partial curl download. It never pipes a download
+into sudo. Bootstrap resolves the public GitHub `deploy` ref once and extracts
+that exact SHA into an owned directory under `~/.local/share/paiper-bootstrap`.
+Archive links, traversal, special files, duplicates and multiple roots are
+rejected before execution. The exact setup source is retained for resuming.
+Subsequent release installation still belongs to the existing manager, which
+fetches the then-current CI-promoted deploy ref and performs its real smoke tests.
+
+### What the prompts do
+
+All approval prompts default to **No**; there is no unattended hardware `--yes`
+option. Answers are read from `/dev/tty`, even if bootstrap's stdin is redirected.
+
+1. **Preserve your paths.** Choose an existing manual config by path, or use
+   the persistent default. No YAML editing is needed. Confirm first use, or
+   supply the **original existing state database** from manual operation before
+   any GPIO. `--config PATH --state ORIGINAL_DB --vendor-lib PATH` can supply
+   existing paths. Managed settings always win; conflicting replacements fail.
+   Choices are saved before provisioning so reboot/rerun needs no state/vendor
+   environment variables.
+2. **OS prerequisites.** Inspect distro package/module availability without
+   importing GPIO. If missing, explicitly approve `sudo apt-get update` and
+   `sudo apt-get install --yes` for the listed packages: `git`, `python3-venv`,
+   `python3-pip`, `python3-spidev`, `python3-gpiozero`, `python3-lgpio`,
+   `raspi-config`. No OS upgrade is requested.
+3. **SPI and permissions.** Separately approve
+   `sudo raspi-config nonint do_spi 0` when SPI is disabled (this can load SPI
+   pins immediately as well as persist boot configuration). Keep other SPI/GPIO
+   programs stopped. Separately approve `sudo usermod -aG spi,gpio USER` for
+   missing groups. Setup returns **2 (restart/new login needed)** after changes,
+   never reboots, and tells you to reconnect and rerun as the same user.
+4. **Chromium OS libraries.** Optionally approve a stable user-owned
+   `~/.local/share/paiper/bootstrap-venv`, created with distro Python and system
+   site packages. It installs Playwright constrained by the repository pins,
+   then runs `python -m playwright install-deps chromium`, which invokes sudo
+   for OS packages. Pip and the venv stay non-root; there is no editable install
+   pointing at disposable source. Declining is appropriate if libraries are
+   already provisioned; candidate offline smoke must still pass.
+5. **Prepare the app.** The existing installer/manager builds and activates a
+   healthy candidate, installs user units and leaves scheduling unchanged
+   (`--no-update-timer`). On first installation both timers remain off.
+   Known failed candidates require an explicit retry after fixing the cause.
+   Explicitly approved first use initializes the safety database once through
+   the healthy candidate's actual `DisplayState`, even if you stay offline.
+6. **Vendor sources.** Reuse a valid configured vendor without modifying it,
+   or explicitly approve filling a currently null `vendor_lib`. The official
+   [E6 archive](https://files.waveshare.com/wiki/4inch-e-Paper-HAT%2B-(E)/4inch_e-Paper_E.zip)
+   must match SHA-256
+   `61edbb7992cbb3321029b2775c2ca6bdf6aea7663a138a9a8fa017bfa2a9ea47`.
+   Only `__init__.py`, `epd4in0e.py`, and `epdconfig.py` from
+   `4inch_e-Paper_E/RaspberryPi_JetsonNano/python/lib/waveshare_epd/` are installed,
+   with their source notices intact, by default under
+   `~/.local/share/paiper/vendor`. No `.so`, `.pyc` or unrelated files are copied.
+   A checksum mismatch fails before extraction/import. Existing customized
+   vendor files are never overwritten. Updates never download vendor code.
+7. **Calibrate or stay offline.** Skip calibration, or explicitly reuse a
+   previously confirmed profile for this same hardware. For new calibration,
+   approve pausing any existing display **timer**, not its service; a busy
+   lifecycle fails rather than killing a refresh. Then confirm the exact
+   **six-color E6 label and wiring** before vendor import or transfer. Setup
+   uses the healthy candidate's real deferred renderer and `render_and_display`,
+   under the original persistent state lock and outer lifecycle lock. The
+   temporary calibration profile does not prematurely set stored confirmation.
+   A zero CLI exit alone is not considered a transfer: skip has a distinct result.
+8. **Verify visually.** Check six colors, text and TL/TR/BL/BR corners. A panel
+   mounted 90° counterclockwise normally uses rotation **270**; if upside-down,
+   choose **90**. The one opposite-orientation retry waits the remaining
+   **at least 300 seconds after completed transfer**, using the same database;
+   it never resets cooldown or busy-spins. Only actual transfer followed by
+   your visual approval saves `confirmed: true` and rotation. The candidate's
+   real profile validator checks the atomic edit, and the exact prior config is
+   backed up beside it as `config.yaml.setup-<id>.bak`.
+9. **Scheduling and boot.** Separately opt into display and update timers.
+   Before enabling display, approve the `GPIOZERO_PIN_FACTORY=lgpio` service
+   drop-in; calibration also sets that environment. Conflicting drop-ins and
+   `EnvironmentFile` overrides are retained for manual review, not overwritten.
+   Separately approve `sudo loginctl enable-linger USER` to run enabled user
+   timers at boot without login.
+
+Rerun the same command, or the retained exact-source command printed by
+bootstrap. Prerequisites are rechecked, not treated as complete after failure.
+Exit **0** means the requested installation steps completed (possibly offline
+only), **1** means failure/interruption, and **2** requests reboot/new login.
+No software-only outcome proves physical verification. Skipped, failed, or
+interrupted calibration never creates a new stored confirmation; interrupted
+hardware history remains fail-closed for operator inspection.
+
+Existing settings/config bytes are unchanged unless you approve a vendor/panel
+edit. Settings edits also get a sibling `.setup-<id>.bak`. Runtime, vendor,
+bootstrap venv, config and state stay outside managed releases. Provisioning and
+profile changes take the shared install/update/lifecycle/state locks in that
+order; calibration lets the application acquire its own inner state lock.
+Existing corrupt or interrupted state blocks provisioning too, using the
+manager's unchanged state validator; setup never repairs or replaces history.
+
+**State provenance and recovery:** `~/.local/share/paiper/setup-choices.json`
+also records a `state_phase`. An existing selected database is `required` from
+initial selection. Older saved choices or managed settings without first-use
+provenance are also treated as `required`: a missing file is not evidence of an
+unused panel. A missing required database stops reruns before external commands,
+and candidate cooldown/calibration/confirmation operations cannot create it.
+Restore access to the original persistent storage; do not select a new path.
+
+Only explicit first-use approval for a missing database records `pending`.
+That permission survives a reboot/new-login rerun **before initialization**.
+Observing an existing database consumes it. Otherwise the candidate durably
+writes `initializing` before opening SQLite, initializes the application's real
+schema without GPIO, then persists `required`. Crashes/failures during that
+phase deliberately block automatic retry—even if a valid-looking database
+exists—because completion is ambiguous. Preserve the database, sibling locks,
+config, settings and setup choices for operator-reviewed recovery. Never delete
+or edit the phase record to regain creation permission, and never clear an
+interrupted hardware marker. No automatic reset/recovery command is provided.
+Keep these records on reliable persistent storage; they cannot identify the
+physical panel or detect an operator substituting an old valid database.
+The healthy candidate must support non-creating state access; an older candidate
+without that API fails closed rather than falling back to creating history.
+
+Setup does not stop services. Declining scheduling leaves enabled timers enabled;
+actual enabled/active states are printed. If you approve pausing a display
+timer, it stays paused on failure or declined re-enablement; restart it only
+after resolving the issue. System commands use the manager's sanitized failure
+summaries; commands that may need sudo show their interactive output locally.
+
+`/usr/bin/python3 deploy/setup.py --help` and `sh deploy/bootstrap.sh --help`
+are safe on macOS, but OS provisioning, systemd and actual E6 transfers require
+on-device validation. No Pi/GPIO operation is claimed verified by local tests.
+
+## Advanced manual installation
+
+The remaining sections preserve the lower-level setup and operational guide.
+Use them for already-provisioned devices or deliberate manual maintenance.
+
+## 1. Fresh Raspberry Pi bootstrap (manual)
 
 Use a supported 64-bit Raspberry Pi OS with distro Python >=3.11 (Bookworm's
 Python 3.11 is the reference), sufficient disk for multiple separate Chromium
 installations, a reliable clock, and persistent local storage. These OS and
-hardware steps must be performed by the operator; the installer/updater never
+hardware steps below are performed by the operator; `install.py`/the updater never
 run apt, sudo, system package upgrades or browser `install-deps`.
 
 ```sh
@@ -67,8 +224,8 @@ export GPIOZERO_PIN_FACTORY=lgpio
 ```
 
 Review the vendor archive before using it. Do not import the driver just to
-check installation: import can initialize GPIO. Paiper does not bundle,
-download on update, or modify the vendor code.
+check installation: import can initialize GPIO. Paiper does not bundle, download on update, or modify the vendor code. Guided
+setup is the optional checksum-pinned source downloader described above.
 
 Render both scenes without GPIO first:
 
@@ -118,6 +275,14 @@ enablement on reruns. Conflicting `--config` content or `--vendor-lib` fails.
 To change a persistent setting, stop scheduling as appropriate, review and edit
 `settings.json` yourself, and rerun; never move the hardware state to start fresh.
 Changing the settings schema is not supported.
+
+For an existing manual config/state pair, use
+`--config-path /absolute/config.yaml --state /absolute/original.sqlite3`
+to retain the configuration in place and persist the original state location on
+first install. Conflicting paths on a rerun are refused. Add `--no-update-timer`
+to prepare the healthy release and units without changing update scheduling;
+the original installer default still enables the update timer. Guided setup
+uses this opt-out and asks about each timer separately.
 
 ### Opt in to the display timer
 

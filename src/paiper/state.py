@@ -44,10 +44,13 @@ class DisplayState:
     start of hardware access durably. Always call ``finish_attempt`` on failure,
     or ``succeed`` on success, with a conservative end-of-lifecycle timestamp.
     A reservation alone (no hardware started) still enforces 300 seconds.
+    ``require_existing`` forbids SQLite creation, including a disappearance
+    between the existence check and connection, for callers with known history.
     """
 
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, *, require_existing: bool = False):
         self.path = Path(path).resolve()
+        self.require_existing = require_existing
         self._lock = None
         self._connection = None
         self._reservation = None
@@ -63,9 +66,17 @@ class DisplayState:
             except BlockingIOError as error:
                 raise StateLockedError("Display lifecycle is already locked") from error
             exists = self.path.exists()
+            if self.require_existing and not exists:
+                raise StateCorruptError(
+                    "Required display state is missing; never reset history"
+                )
             if exists and self.path.stat().st_size == 0:
                 raise StateCorruptError("Existing display state is empty")
-            self._connection = sqlite3.connect(self.path, timeout=0)
+            self._connection = (
+                sqlite3.connect(self.path.as_uri() + "?mode=rw", uri=True, timeout=0)
+                if self.require_existing
+                else sqlite3.connect(self.path, timeout=0)
+            )
             self._connection.row_factory = sqlite3.Row
             self._connection.execute("PRAGMA synchronous = FULL")
             if not exists:

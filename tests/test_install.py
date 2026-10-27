@@ -103,6 +103,38 @@ def test_initial_install_prepares_before_enabling_updater_only(installation):
         ).read_bytes()
 
 
+def test_preparation_only_retains_explicit_manual_paths(installation):
+    installer, home, root, runner, systemctl, _ = installation
+    config = home / "manual.yaml"
+    config.write_text("# keep bytes\npanel:\n  confirmed: false\n")
+    state = home / "original.sqlite3"
+    with DisplayState(state) as db:
+        db.reserve(1000, "original")
+        db.begin_attempt()
+        db.succeed(1040, "original")
+    before = state.read_bytes()
+    assert (
+        installer.main(
+            ["--no-update-timer", "--config-path", str(config), "--state", str(state)],
+            runner=runner,
+        )
+        == 0
+    )
+    settings = json.loads((root / "settings.json").read_text())
+    assert settings["config"] == str(config)
+    assert settings["state"] == str(state)
+    assert state.read_bytes() == before
+    assert config.read_text() == "# keep bytes\npanel:\n  confirmed: false\n"
+    assert systemctl == [["daemon-reload"]]
+    assert (
+        installer.main(
+            ["--no-update-timer", "--state", str(home / "fresh.sqlite3")], runner=runner
+        )
+        == 1
+    )
+    assert json.loads((root / "settings.json").read_text()) == settings
+
+
 @pytest.mark.parametrize("xdg", ["absolute", "relative", "empty"])
 def test_installer_keeps_original_cli_state_default(installation, monkeypatch, xdg):
     installer, home, root, runner, _, _ = installation
