@@ -1,0 +1,47 @@
+* { box-sizing: border-box; }
+html, body { width: 600px; height: 400px; margin: 0; background: white; color: black; }
+body { font-family: PaperSans, sans-serif; font-size: 24px; }
+header { height: 48px; padding: 8px 20px; border-bottom: 3px solid black; display: flex; justify-content: space-between; align-items: center; }
+header strong { font-family: PaperSerif, serif; font-size: 28px; font-weight: 700; line-height: 32px; max-width: 420px; overflow-wrap: anywhere; }
+header span { font-size: 18px; line-height: 22px; color: red; letter-spacing: 1px; }
+main { height: 304px; padding: 12px 20px; display: flex; flex-direction: column; gap: 8px; }
+section { flex: 1; min-height: 0; }
+.label, .detail { font-size: 18px; line-height: 22px; }
+.label { font-weight: 650; }
+.text { font-size: 26px; line-height: 30px; overflow-wrap: anywhere; }
+.detail { font-weight: 400; }
+.weather section:first-child { flex: 1.4; }
+.weather section:first-child .text { font-size: 48px; line-height: 60px; }
+footer { height: 48px; padding: 2px 20px; border-top: 2px solid black; font-size: 18px; line-height: 21px; }
+.headline { justify-content: center; }
+.headline section { flex: none; border-left: 5px solid red; padding-left: 15px; }
+.headline .label { margin-bottom: 14px; }
+.headline .text { font-family: PaperSerif, serif; font-size: 30px; line-height: 35px; }
+.verse { justify-content: center; }
+.verse section { flex: none; border-left: 5px solid blue; padding-left: 18px; }
+.verse .label { margin-bottom: 12px; color: blue; }
+.verse .text { font-family: PaperSerif, serif; font-size: 30px; line-height: 36px; }
+.markets .label { font-size: 40px; line-height: 46px; }
+.markets .text { font-size: 24px; line-height: 27px; }
+.markets { gap: 3px; padding-top: 8px; padding-bottom: 8px; }
+.markets .detail { line-height: 21px; }
+.currency section { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid black; }
+.currency .label { font-size: 24px; line-height: 30px; }
+.currency .text { font-size: 48px; line-height: 60px; }
+.score section { position: relative; padding-right: 90px; }
+.score section:not(:last-child) .text { position: absolute; right: 0; top: 0; font-size: 48px; line-height: 60px; }
+.score section:last-child { padding: 0; }
+.score .label { font-size: 24px; line-height: 28px; }
+.score section:last-child .label { font-size: 18px; line-height: 22px; }
+.score section:last-child .text { font-size: 24px; line-height: 28px; }
+.morning { gap: 6px; }
+.morning section { flex: none; }
+.morning .text { font-size: 24px; line-height: 27px; }
+.gallery { padding-bottom: 0; gap: 4px; }
+.gallery img { display: block; flex: none; }
+.gallery section { flex: none; }
+.gallery .text { font-size: 18px; line-height: 22px; }
+.alert { border-left: 8px solid red; padding-left: 12px; }
+.alert section { flex: none; }
+.alert section:first-child .label { color: red; font-size: 26px; line-height: 30px; margin-bottom: 6px; }
+.alert section:last-child .text { font-size: 24px; line-height: 28px; }

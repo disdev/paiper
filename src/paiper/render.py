@@ -13,7 +13,7 @@ from PIL import Image
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 
-from paiper.panel import RGB_TO_CODE, quantize_ui
+from paiper.panel import RGB_TO_CODE, quantize_photo, quantize_ui
 from paiper.scenes import scene_context
 
 
@@ -33,7 +33,20 @@ def render_html(scene: str, now: datetime) -> str:
     """Return self-contained HTML for an aware image-generation timestamp."""
     context = scene_context(scene, now)
     package = files("paiper")
-    fonts = {
+    return (
+        _environment()
+        .get_template(f"{scene}.html")
+        .render(
+            **context,
+            **_fonts(),
+            css=package.joinpath("templates", "paper.css").read_text(encoding="utf-8"),
+        )
+    )
+
+
+def _fonts() -> dict[str, str]:
+    package = files("paiper")
+    return {
         key: base64.b64encode(package.joinpath("assets", filename).read_bytes()).decode(
             "ascii"
         )
@@ -42,14 +55,39 @@ def render_html(scene: str, now: datetime) -> str:
             ("sans_font", "public-sans-latin.woff2"),
         )
     }
+
+
+def render_dashboard_html(context, now: datetime, timezone: str) -> str:
+    """Render an already collected typed Page; never open a cache/provider here."""
+    from zoneinfo import ZoneInfo
+
+    from paiper.dashboard import stamp
+
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("Image generation time must be aware")
+    photo = base64.b64encode(context.photo).decode("ascii") if context.photo else None
     return (
         _environment()
-        .get_template(f"{scene}.html")
+        .get_template("dashboard.html")
         .render(
-            **context,
-            **fonts,
-            css=package.joinpath("templates", "paper.css").read_text(encoding="utf-8"),
+            page=context,
+            generated=stamp(now, timezone),
+            clock=now.astimezone(ZoneInfo(timezone)).strftime("%H:%M %Z"),
+            photo=photo,
+            **_fonts(),
+            css=files("paiper").joinpath("templates", "dashboard.css").read_text(),
         )
+    )
+
+
+def render_dashboard(
+    context, now: datetime, timezone: str = "America/Chicago"
+) -> Image.Image:
+    from paiper.dashboard import PHOTO_BOX
+
+    return _render_frame(
+        render_dashboard_html(context, now, timezone),
+        PHOTO_BOX if context.photo else None,
     )
 
 
@@ -82,9 +120,28 @@ def _check_layout(page) -> None:
         raise RenderError("Layout overflow: " + "; ".join(failures))
 
 
+def _fit_editorial(page) -> None:
+    """Measure actual fonts; editorial ellipses reduce headlines, never clip text."""
+    page.evaluate("""() => {
+        for (const el of document.querySelectorAll('[data-editorial-lines]')) {
+            const limit = Number(el.dataset.editorialLines) *
+                parseFloat(getComputedStyle(el).lineHeight);
+            const original = el.textContent.trim();
+            let length = original.length;
+            while (el.getBoundingClientRect().height > limit + 0.5 && length > 1) {
+                length--;
+                el.textContent = original.slice(0, length).trimEnd() + '…';
+            }
+        }
+    }""")
+
+
 def render_scene(scene: str, now: datetime) -> Image.Image:
     """Render an RGB 600×400 six-color frame; fail rather than silently clip."""
-    html = render_html(scene, now)
+    return _render_frame(render_html(scene, now))
+
+
+def _render_frame(html: str, photo_box=None) -> Image.Image:
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch()
@@ -102,6 +159,7 @@ def render_scene(scene: str, now: datetime) -> Image.Image:
                     "() => [...document.fonts].every(font => font.status === 'loaded')"
                 ):
                     raise RenderError("Packaged fonts failed to load")
+                _fit_editorial(page)
                 _check_layout(page)
                 screenshot = page.screenshot(type="png")
             finally:
@@ -109,7 +167,10 @@ def render_scene(scene: str, now: datetime) -> Image.Image:
     except PlaywrightError as error:
         raise RenderError(f"Chromium render failed: {error}") from error
     with Image.open(BytesIO(screenshot)) as image:
-        return quantize_ui(image)
+        frame = quantize_ui(image)
+        if photo_box:
+            frame.paste(quantize_photo(image.crop(photo_box)), photo_box)
+        return frame
 
 
 def save_preview(image: Image.Image, path: Path) -> None:

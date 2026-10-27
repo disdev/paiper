@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <style>
+    @font-face { font-family: PaperSerif; src: url(data:font/woff2;base64,{{ serif_font }}) format("woff2"); font-weight: 100 900; }
+    @font-face { font-family: PaperSans; src: url(data:font/woff2;base64,{{ sans_font }}) format("woff2"); font-weight: 100 900; }
+    {{ css }}
+  </style>
+</head>
+<body>
+  <header data-fit>
+    <strong data-fit data-editorial-lines="1">{{ page.title }}</strong>
+    <span data-fit title="Rendered {{ generated }}">{{ clock }}</span>
+  </header>
+  <main class="{{ page.layout }}" data-fit>
+    {% if photo %}
+    <img data-fit src="data:image/png;base64,{{ photo }}" width="560" height="246" alt="Photograph">
+    {% endif %}
+    {% for block in page.blocks %}
+    <section data-fit>
+      {% if block.label %}<div class="label" data-fit>{{ block.label }}</div>{% endif %}
+      <div class="text" data-fit{% if page.layout == "headline" %} data-editorial-lines="6"{% elif page.layout == "morning" %} data-editorial-lines="2"{% endif %}>{{ block.text }}</div>
+      {% if block.detail %}<div class="detail" data-fit>{{ block.detail }}</div>{% endif %}
+    </section>
+    {% endfor %}
+  </main>
+  <footer data-fit>
+    <div data-fit>{{ page.source }}</div>
+    <div data-fit>{{ page.freshness }}</div>
+  </footer>
+</body>
+</html>

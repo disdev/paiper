@@ -1,6 +1,6 @@
-# Paiper display foundation
+# Paiper daily paper
 
-Offline, one-shot rendering for the **Waveshare 4-inch six-color E6 panel only**:
+One-shot rendering for the **Waveshare 4-inch six-color E6 panel only**:
 600×400 logical landscape, rotated once into the driver's 400×600 native buffer.
 Black, white, yellow, red, blue, and green are the only output colors.
 This is not compatible with similarly named monochrome, four-color, or
@@ -8,9 +8,14 @@ seven-color panels.
 
 The `stillness` and `calibration` scenes explicitly say **OFFLINE**. Their
 America/Chicago timestamp is the image-generation time, not a live clock.
-There are **no live feeds, news, games, or control UI** in this foundation.
+The new `dashboard` scene adds live, independently cached sources and rotating
+weather, Cardinals, markets, news, USD/PEN, verified WEB verses and photographs.
+See [dashboard preferences and page behavior](docs/dashboard.md).
+There is no local control UI or orbital-pass prediction.
 Optional user timers provide CI-approved pull updates and explicitly opted-in
 offline display attempts; the application itself remains one-shot.
+This change does not switch existing deployment timers to dashboard; deployment
+manager integration is a separate task. Preview it locally first.
 The physical Raspberry Pi, panel orientation, and
 multi-hour operation are **unverified**; local preview success is not deployment.
 
@@ -67,6 +72,8 @@ below is needed when using OS-provided GPIO packages.
 
 ```sh
 paiper preview --scene stillness --output .artifacts/stillness.png
+paiper preview --scene dashboard --offline --cache .artifacts/content.sqlite3 \
+  --output .artifacts/dashboard.png
 paiper preview --scene calibration --output .artifacts/calibration.png
 paiper preview --scene calibration --config config.yaml --native \
   --output .artifacts/calibration-native.png
@@ -82,6 +89,8 @@ rotation. PNG saves are atomic and validate dimensions, RGB mode, and every
 pixel against the six-color palette. Fonts, CSS, and templates are packaged;
 scene rendering blocks external network requests. Local font attribution and
 licenses are in `src/paiper/assets/`.
+Dashboard collection happens before rendering; omit `--offline` to fetch live
+sources. Offline mode permits cached and packaged content, never providers.
 
 ## Raspberry Pi installation — physical verification still required
 
