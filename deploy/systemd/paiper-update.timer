@@ -1,0 +1,11 @@
+[Unit]
+Description=Poll the CI-promoted Paiper deploy branch
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=5min
+RandomizedDelaySec=20s
+Unit=paiper-update.service
+
+[Install]
+WantedBy=timers.target

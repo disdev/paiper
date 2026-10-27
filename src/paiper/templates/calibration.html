@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block paper %}
+<main class="calibration-sheet" data-fit>
+  <span class="corner tl" data-fit>TL</span>
+  <span class="corner tr" data-fit>TR</span>
+  <span class="corner bl" data-fit>BL</span>
+  <span class="corner br" data-fit>BR</span>
+  <header class="calibration-title" data-fit>
+    <h1 data-fit>Panel proof<span class="red">.</span></h1>
+    <span data-fit>600 × 400 · OFFLINE</span>
+  </header>
+  <section class="swatches" aria-label="Six panel colors" data-fit>
+    {% for name, color in [("Black", "#000"), ("White", "#fff"), ("Yellow", "#ff0"), ("Red", "#f00"), ("Blue", "#00f"), ("Green", "#0f0")] %}
+    <div class="swatch" data-fit>
+      <div class="swatch-color" style="background:{{ color }}" data-fit></div>
+      <span data-fit>{{ name }}</span>
+    </div>
+    {% endfor %}
+  </section>
+  <section class="type-samples" aria-label="Typography proof" data-fit>
+    <div class="type-row" data-fit><span class="size-label" data-fit>18 px</span><span class="sample-small" data-fit>Metadata / Updated {{ updated }}</span></div>
+    <div class="type-row" data-fit><span class="size-label" data-fit>26 px</span><span class="sample-body" data-fit>Clear type, quiet margins.</span></div>
+    <div class="type-row" data-fit><span class="size-label" data-fit>40 px</span><span class="sample-serif" data-fit>Be still, and know.</span></div>
+  </section>
+  <footer class="calibration-note" data-fit>Orientation &amp; pigment check · hardware unverified</footer>
+</main>
+{% endblock %}

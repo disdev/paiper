@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; font-src data:; img-src data:; base-uri 'none'; form-action 'none'">
+  <title>Paiper — {{ scene }}</title>
+  <style>
+    @font-face {
+      font-family: Newsreader;
+      src: url(data:font/woff2;base64,{{ serif_font }}) format("woff2");
+      font-weight: 400;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: "Public Sans";
+      src: url(data:font/woff2;base64,{{ sans_font }}) format("woff2");
+      font-weight: 400 600;
+      font-style: normal;
+    }
+    {{ css | safe }}
+  </style>
+</head>
+<body class="{{ scene }}">
+  {% block paper %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,10 @@
+[Unit]
+Description=Schedule protected offline Paiper refresh attempts
+
+[Timer]
+OnBootSec=1min
+OnUnitInactiveSec=5min
+Unit=paiper-display.service
+
+[Install]
+WantedBy=timers.target

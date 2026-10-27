@@ -1,0 +1,9 @@
+[Unit]
+Description=Render an offline Paiper scene and attempt a protected panel refresh
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 "%h/.local/share/paiper/manager.py" run
+TimeoutStartSec=infinity
+StandardOutput=journal
+StandardError=journal

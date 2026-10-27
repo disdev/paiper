@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block paper %}
+<header class="masthead" data-fit>
+  <div class="wordmark" data-fit>paiper<span class="red">.</span></div>
+  <div class="edition" data-fit>{{ date }}</div>
+  <div class="updated" data-fit>Updated {{ updated }}</div>
+</header>
+<main class="hero" data-fit>
+  <div class="section-label" data-fit><span class="red">01</span> / A MOMENT OF STILLNESS</div>
+  <div class="reading" data-fit>
+    <div class="quote-mark red" aria-hidden="true" data-fit>“</div>
+    <blockquote data-fit>{{ verse }}</blockquote>
+  </div>
+  <div class="attribution" data-fit>
+    <span class="reference" data-fit>Psalm 46:10</span>
+    <span data-fit>Excerpt · World English Bible</span>
+  </div>
+</main>
+<footer class="context-rail" data-fit>
+  <span class="offline" data-fit>OFFLINE</span>
+  <span data-fit>Live sources are not connected.</span>
+</footer>
+{% endblock %}

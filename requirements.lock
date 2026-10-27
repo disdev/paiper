@@ -1,0 +1,2 @@
+# Stable manager entrypoint; .txt pins are discoverable by Dependabot's pip updater.
+-c requirements.txt

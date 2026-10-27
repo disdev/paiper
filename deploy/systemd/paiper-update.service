@@ -1,0 +1,9 @@
+[Unit]
+Description=Prepare and activate a healthy Paiper release
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 "%h/.local/share/paiper/manager.py" update
+TimeoutStartSec=infinity
+StandardOutput=journal
+StandardError=journal
