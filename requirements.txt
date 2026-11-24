@@ -4,5 +4,5 @@ MarkupSafe==3.0.4
 pillow==12.3.0
 playwright==1.64.1
 pyee==13.0.1
-PyYAML==6.0.3
+PyYAML==6.0.4
 typing_extensions==4.16.0
